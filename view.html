@@ -6,41 +6,38 @@
         model-viewer {
             width: 100vw; height: 100vh;
             background-color: transparent;
+            --poster-color: transparent;
             position: absolute;
-            bottom: -80px; /* 腕の付け根を隠すために少し下げる */
-            right: -30px;
-            transition: transform 0.1s ease-out; /* 動きをなめらかに */
+            bottom: -50px; /* 腕の付け根を少し隠す */
+            right: -20px;
+            transition: transform 0.1s ease-out; /* 慣性（ラグ） */
         }
     </style>
     <script type="module" src="https://ajax.googleapis.com/ajax/libs/model-viewer/3.4.0/model-viewer.min.js"></script>
 </head>
 <body>
     <model-viewer 
-        id="weapon"
+        id="mv"
         src="melee_156.glb" 
-        autoplay
-        animation-name="Idle"  /* 初期状態は待機ポーズ */
-        camera-orbit="45deg 45deg 200m" 
+        autoplay 
+        camera-orbit="45deg 75deg 2m" 
         interaction-prompt="none">
     </model-viewer>
 
     <script>
-        const mv = document.querySelector('#weapon');
-
+        const mv = document.getElementById('mv');
         window.addEventListener('message', (e) => {
             if (e.data.type === 'mousemove') {
-                // 慣性のある動き
-                mv.style.transform = `translate(${e.data.x * 30}px, ${e.data.y * 20}px) rotate(${e.data.x * 5}deg)`;
+                // マウス移動による慣性
+                const tx = e.data.x * 25;
+                const ty = e.data.y * 15;
+                mv.style.transform = `translate(${tx}px, ${ty}px) rotate(${e.data.x * 5}deg)`;
             }
-
-            if (e.data.type === 'action') {
-                // 特定のアニメーションに切り替え
-                mv.animationName = e.data.animation;
-                
-                // アニメーションが終わったらIdleに戻す（例：1秒後）
-                setTimeout(() => {
-                    mv.animationName = "Idle";
-                }, 1000); 
+            if (e.data.type === 'action' && e.data.key === 'KeyR') {
+                // リロード用のアニメーションに切り替え
+                // ※モデル内のアニメーション名を確認してください
+                mv.animationName = "Reload"; 
+                setTimeout(() => { mv.animationName = "Idle"; }, 1000);
             }
         });
     </script>
