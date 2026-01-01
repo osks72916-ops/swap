@@ -1,63 +1,72 @@
 <!DOCTYPE html>
-<html>
+<html lang="ja">
 <head>
+    <meta charset="UTF-8">
+    <title>Weapon Viewer</title>
+    <!-- Google Model Viewerの読み込み -->
+    <script type="module" src="https://ajax.googleapis.com/ajax/libs/model-viewer/3.3.0/model-viewer.min.js"></script>
     <style>
-        body { margin: 0; padding: 0; overflow: hidden; background: transparent; width: 100vw; height: 100vh; user-select: none; }
+        /* 背景を完全に透明にする設定 */
+        html, body {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            background-color: transparent !important;
+            overflow: hidden;
+        }
+        /* モデルビュワーの設定 */
         model-viewer {
-            width: 400px; height: 400px; /* モデルが十分入るサイズ */
-            position: absolute;
-            cursor: move;
-            background: transparent;
+            width: 100%;
+            height: 100%;
+            background-color: transparent;
             --poster-color: transparent;
         }
-        /* 編集モード中のみ枠線を表示 */
-        .editing model-viewer { border: 2px dashed rgba(255,255,255,0.5); }
+        /* 武器全体を動かすためのコンテナ */
+        #container {
+            width: 100%;
+            height: 100%;
+            /* 初期位置 */
+            transform-origin: bottom right;
+            transition: transform 0.05s linear; 
+        }
     </style>
-    <script type="module" src="https://ajax.googleapis.com/ajax/libs/model-viewer/3.4.0/model-viewer.min.js"></script>
 </head>
 <body>
-    <model-viewer id="mv" src="melee_156.glb" autoplay interaction-prompt="none" camera-orbit="45deg 75deg 2m"></model-viewer>
+
+    <div id="container">
+        <!-- src="knife.glb" の部分は自分のファイル名に変えてください -->
+        <model-viewer
+            src="melee_156.glb" 
+            camera-controls
+            disable-zoom
+            disable-tap
+            interaction-prompt="none"
+            camera-orbit="-20deg 80deg 2.5m"
+            field-of-view="30deg"
+            shadow-intensity="1"
+            environment-image="neutral"
+        ></model-viewer>
+    </div>
 
     <script>
-        const mv = document.getElementById('mv');
-        let isDragging = false;
-        let scale = 0.2;
-        let posX = window.innerWidth - 450;
-        let posY = window.innerHeight - 450;
+        const container = document.getElementById('container');
 
-        // 初期配置
-        mv.style.left = posX + 'px';
-        mv.style.top = posY + 'px';
-        mv.setAttribute('scale', `${scale} ${scale} ${scale}`);
+        // Voxiom側（親ウィンドウ）からのメッセージを受け取る
+        window.addEventListener('message', (event) => {
+            // セキュリティのため、本来は送信元(origin)をチェックすべきですが
+            // ローカルテスト用に一旦全許可しています
+            
+            const data = event.data;
 
-        // マウスドラッグ移動
-        mv.addEventListener('mousedown', (e) => { isDragging = true; });
-        window.addEventListener('mousemove', (e) => {
-            if (!isDragging) return;
-            posX = e.clientX - 200; // 中心に合わせる
-            posY = e.clientY - 200;
-            mv.style.left = posX + 'px';
-            mv.style.top = posY + 'px';
-            sendUpdate();
-        });
-        window.addEventListener('mouseup', () => { isDragging = false; });
-
-        // ホイール拡大縮小
-        window.addEventListener('wheel', (e) => {
-            scale += e.deltaY * -0.0002;
-            scale = Math.min(Math.max(.05, scale), 2); // 最小・最大制限
-            mv.setAttribute('scale', `${scale} ${scale} ${scale}`);
-            sendUpdate();
-        });
-
-        function sendUpdate() {
-            window.parent.postMessage({ type: 'updateConfig', x: posX, y: posY, scale: scale }, '*');
-        }
-
-        // 編集モードの見た目切り替え
-        window.addEventListener('message', (e) => {
-            if (e.data.isAdjusting) document.body.classList.add('editing');
-            else document.body.classList.remove('editing');
+            if (data.type === 'update-transform') {
+                // 受け取った計算結果をCSSに適用
+                container.style.transform = `
+                    translate3d(${data.x}px, ${data.y}px, 0)
+                    rotateY(${data.rotateY}deg)
+                    rotateX(${data.rotateX}deg)
+                `;
+            }
         });
     </script>
 </body>
