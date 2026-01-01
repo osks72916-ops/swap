@@ -132,24 +132,30 @@
             }
         });
 
-        // 共通ズーム処理（暴走防止版）
         function handleZoom(deltaY) {
-            // 数値の大きさは無視して、方向(+1 か -1)だけ取る
-            const direction = Math.sign(deltaY); 
-            
-            // ズーム速度（一度にどれだけ変化するか）
-            const speed = 2.0; 
+    const direction = Math.sign(deltaY); 
+    const speed = 5.0; // 変化を分かりやすくするために少し速くしました
 
-            // 手前(+): 距離を減らす = 大きくなる
-            // 奥(-): 距離を増やす = 小さくなる (以前と逆にしました)
-            // ※「直感的に逆だ」と感じたら、ここの += を -= に戻してください
-            config.distance += direction * speed;
+    // 奥(-): 距離を増やす = 小さくなる
+    // 手前(+): 距離を減らす = 大きくなる
+    config.distance += direction * speed;
 
-            // 制限 (0.1m ～ 2000m)
-            config.distance = Math.max(0.1, Math.min(2000, config.distance));
-            
-            updateCamera();
-        }
+    // 制限 (0.1m ～ 2000m)
+    config.distance = Math.max(0.1, Math.min(2000, config.distance));
+    
+    // 重要：カメラを即座に更新
+    updateCamera();
+}
+
+function updateCamera() {
+    // 角度と距離を一つの文字列にまとめる
+    const orbitString = `${config.orbitX}deg ${config.orbitY}deg ${config.distance}m`;
+    
+    // model-viewerの属性を更新することで見た目に反映させる
+    modelViewer.setAttribute('camera-orbit', orbitString);
+
+    if(debugInfo) debugInfo.innerText = `Distance: ${config.distance.toFixed(1)}m`;
+}
 
         // Bキー送信
         window.addEventListener('keydown', (e) => {
