@@ -13,75 +13,48 @@
             user-select: none;
             outline: none;
         }
-
         #wrapper {
             position: absolute; top: 0; left: 0;
             width: 100%; height: 100%;
             pointer-events: none;
             transform-origin: center center;
         }
-
         .hidden { opacity: 0 !important; }
-
         model-viewer {
             width: 100%; height: 100%;
             background-color: transparent;
             --poster-color: transparent;
             pointer-events: auto;
         }
-
-        /* デバッグ用（距離を表示） */
-        #debug-info {
-            position: absolute;
-            top: 10px; left: 10px;
-            color: yellow;
-            font-family: monospace;
-            font-size: 16px;
-            background: rgba(0,0,0,0.5);
-            padding: 5px;
-            pointer-events: none;
-            z-index: 999999;
-            /* 邪魔なら display: none; にしてください */
-            display: block; 
-        }
+        /* デバッグ表示を完全に削除しました */
     </style>
 </head>
 <body oncontextmenu="return false;" tabindex="0">
 
-    <!-- 数値確認用の表示 -->
-    <div id="debug-info">Distance: Loading...</div>
-
     <div id="wrapper">
-       <model-viewer
-    id="knife"
-    src="melee_156.glb" 
-    disable-zoom
-    disable-tap
-    interaction-prompt="none"
-    shadow-intensity="0"
-    autoplay
-    field-of-view="45deg"
-    camera-orbit="-30deg 80deg 70m"
-    min-camera-orbit="auto auto 0.01m" 
-    max-camera-orbit="auto auto 2000m"
-></model-viewer>
+        <model-viewer
+            id="knife"
+            src="melee_156.glb" 
+            disable-zoom
+            disable-tap
+            interaction-prompt="none"
+            shadow-intensity="0"
+            autoplay
+            field-of-view="45deg"
+            camera-orbit="-30deg 80deg 70m" 
+        ></model-viewer>
     </div>
 
     <script>
         const wrapper = document.getElementById('wrapper');
         const modelViewer = document.getElementById('knife');
-        const debugInfo = document.getElementById('debug-info');
 
-        // ===============================================
-        //  ここが初期サイズ設定です
-        //  distance: 30 くらいにしておくと最初から小さいです
-        // ===============================================
         let config = { 
             posX: 0, 
             posY: 0, 
             orbitX: -30, 
             orbitY: 80, 
-            distance: 70  // ←ここを大きくすると小さくなります
+            distance: 70  // 70mで固定
         };
 
         let sway = { x: 0, y: 0, rotX: 0, rotY: 0 };
@@ -89,94 +62,33 @@
         let lastMouseX = 0, lastMouseY = 0;
         let isDraggingLeft = false, isDraggingRight = false;
 
-        // モデルロード完了時にもカメラを適用（念のため）
-        modelViewer.addEventListener('load', () => {
-            updateCamera();
-        });
-
-        // 起動時実行
-        updateCamera();
-        updateTransform();
-
-        // メッセージ受信
         window.addEventListener('message', (event) => {
             const data = event.data;
-
             if (data.type === 'set-mode') {
                 isEditMode = data.enabled;
-                document.body.style.cursor = isEditMode ? 'move' : 'default';
-                if (isEditMode) { window.focus(); document.body.focus(); }
+                if (isEditMode) { window.focus(); }
             }
             if (data.type === 'set-visible') {
                 if (data.visible) wrapper.classList.remove('hidden');
                 else wrapper.classList.add('hidden');
             }
             if (data.type === 'update-transform') {
-                if (!isEditMode) {
-                    sway.x = data.x; sway.y = data.y;
-                    sway.rotX = data.rotateX; sway.rotY = data.rotateY;
-                } else { sway = { x: 0, y: 0, rotX: 0, rotY: 0 }; }
+                sway.x = data.x; sway.y = data.y;
+                sway.rotX = data.rotateX; sway.rotY = data.rotateY;
                 updateTransform();
             }
             if (data.type === 'play-animation') {
-                const animName = data.name;
-                if(modelViewer.availableAnimations){
-                    const foundAnim = modelViewer.availableAnimations.find(a => a.toLowerCase().includes(animName.toLowerCase()));
-                    if (foundAnim) {
-                        modelViewer.animationName = foundAnim;
-                        modelViewer.currentTime = 0;
-                        modelViewer.play();
-                    }
+                const foundAnim = modelViewer.availableAnimations?.find(a => a.toLowerCase().includes(data.name.toLowerCase()));
+                if (foundAnim) {
+                    modelViewer.animationName = foundAnim;
+                    modelViewer.currentTime = 0;
+                    modelViewer.play();
                 }
             }
-            // Voxiom側からの強制ズーム
-            if (data.type === 'force-zoom') {
-                handleZoom(data.deltaY);
-            }
         });
 
-        function handleZoom(deltaY) {
-    const direction = Math.sign(deltaY); 
-    const speed = 5.0; // 変化を分かりやすくするために少し速くしました
-
-    // 奥(-): 距離を増やす = 小さくなる
-    // 手前(+): 距離を減らす = 大きくなる
-    config.distance += direction * speed;
-
-    // 制限 (0.1m ～ 2000m)
-    config.distance = Math.max(0.1, Math.min(2000, config.distance));
-    
-    // 重要：カメラを即座に更新
-    updateCamera();
-}
-
-function updateCamera() {
-    // 単位(m)を忘れずに含める
-    const orbit = `${config.orbitX}deg ${config.orbitY}deg ${config.distance}m`;
-    
-    // 属性を直接セット（これが最も確実に反映されます）
-    modelViewer.setAttribute('camera-orbit', orbit);
-
-    // デバッグ表示更新
-    if(debugInfo) debugInfo.innerText = `Distance: ${config.distance.toFixed(1)}m`;
-}
-        // Bキー送信
-        window.addEventListener('keydown', (e) => {
-            if (e.code === 'KeyB' || e.key.toLowerCase() === 'b') {
-                window.parent.postMessage({ type: 'toggle-mode-request' }, '*');
-            }
-        });
-
-        // 自分自身のホイール（念のため）
-        window.addEventListener('wheel', (e) => {
-            if (!isEditMode) return;
-            handleZoom(e.deltaY);
-        }, { passive: false });
-
-        // マウスドラッグ
         window.addEventListener('mousedown', (e) => {
             if (!isEditMode) return;
-            window.focus();
             lastMouseX = e.clientX; lastMouseY = e.clientY;
             if (e.button === 0) isDraggingLeft = true;
             if (e.button === 2) isDraggingRight = true;
@@ -190,26 +102,15 @@ function updateCamera() {
 
             if (isDraggingLeft) {
                 config.posX += deltaX; config.posY += deltaY;
-                updateTransform();
             }
             if (isDraggingRight) {
                 config.orbitX -= deltaX * 0.5; config.orbitY -= deltaY * 0.5;
                 config.orbitY = Math.max(1, Math.min(179, config.orbitY));
-                updateCamera();
+                const orbit = `${config.orbitX}deg ${config.orbitY}deg ${config.distance}m`;
+                modelViewer.setAttribute('camera-orbit', orbit);
             }
+            updateTransform();
         });
-
-        function updateCamera() {
-            // 文字列として正しくセット
-            const orbit = `${config.orbitX}deg ${config.orbitY}deg ${config.distance}m`;
-            
-            // 属性とプロパティ両方にセットして確実に反映させる
-            modelViewer.cameraOrbit = orbit;
-            modelViewer.setAttribute('camera-orbit', orbit);
-
-            // デバッグ表示更新
-            if(debugInfo) debugInfo.innerText = `Distance: ${config.distance.toFixed(1)}m`;
-        }
 
         function updateTransform() {
             wrapper.style.transform = `translate3d(${config.posX + sway.x}px, ${config.posY + sway.y}px, 0) rotateY(${sway.rotY}deg) rotateX(${sway.rotX}deg)`;
