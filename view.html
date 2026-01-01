@@ -12,7 +12,7 @@
         const MODEL_URL = "melee_156.glb"; 
 
         let scene, camera, renderer, model, mixer, control;
-        let actions = {}; // アニメーションを保存する辞書
+        let idleAction, inspectAction;
         const clock = new THREE.Clock();
 
         function init() {
@@ -25,7 +25,7 @@
             renderer.setClearColor(0x000000, 0);
             document.body.appendChild(renderer.domElement);
 
-            scene.add(new THREE.AmbientLight(0xffffff, 1.5));
+            scene.add(new THREE.AmbientLight(0xffffff, 1.2));
             const sun = new THREE.DirectionalLight(0xffffff, 1);
             sun.position.set(5, 5, 5);
             scene.add(sun);
@@ -45,14 +45,19 @@
                 scene.add(model);
                 control.attach(model);
 
-                if (gltf.animations.length) {
+                if (gltf.animations.length > 0) {
                     mixer = new THREE.AnimationMixer(model);
-                    gltf.animations.forEach((clip) => {
-                        const action = mixer.clipAction(clip);
-                        action.setLoop(THREE.LoopOnce); // 1回だけ再生
-                        action.clampWhenFinished = true; // 終わったところで止める
-                        actions[clip.name] = action; // 名前で保存
-                    });
+                    
+                    // 1つ目のアニメーションを待機(Idle)とする
+                    idleAction = mixer.clipAction(gltf.animations[0]);
+                    idleAction.setEffectiveTimeScale(0.3); // ★通常の30%の速度でゆっくり動かす
+                    idleAction.play();
+
+                    // 2つ目があればそれをインスペクトに、なければ1つ目を使い回す
+                    const inspectClip = gltf.animations[1] || gltf.animations[0];
+                    inspectAction = mixer.clipAction(inspectClip);
+                    inspectAction.setLoop(THREE.LoopOnce);
+                    inspectAction.clampWhenFinished = true;
                 }
             });
         }
@@ -64,22 +69,38 @@
                 control.enabled = d.show;
                 control.visible = d.show;
             }
-            // アニメーション再生命令を受け取る
             if (d.type === 'play_animation') {
-                if (mixer) {
-                    mixer.stopAllAction(); // 他の動きを止める
-                    // 指定された名前のアニメ、または最初の1つを再生
-                    const anim = actions[d.name] || Object.values(actions)[0];
-                    if (anim) {
-                        anim.reset().play();
-                    }
+                if (inspectAction) {
+                    inspectAction.reset();
+                    inspectAction.setEffectiveTimeScale(1.0); // インスペクトは等速
+                    // 0.2秒かけてインスペクト動作へ切り替え
+                    inspectAction.crossFadeFrom(idleAction, 0.2, true).play();
+                    
+                    // アニメーションが終わったら待機に戻す
+                    setTimeout(() => {
+                        idleAction.reset().fadeIn(0.5).play();
+                    }, (inspectAction.getClip().duration * 1000));
                 }
             }
         });
 
         function animate() {
             requestAnimationFrame(animate);
-            if (mixer) mixer.update(clock.getDelta());
+            const delta = clock.getDelta();
+            const time = performance.now() * 0.001; // 秒単位の時間
+
+            if (mixer) mixer.update(delta);
+
+            // ★プログラムによる「かっこいい揺らぎ」の追加
+            // 編集モード中でない時だけ適用
+            if (model && !control.dragging) {
+                // ゆっくりした上下の浮遊 (サイン波)
+                model.position.y += Math.sin(time * 1.5) * 0.0005;
+                // わずかな左右の傾き (呼吸感)
+                model.rotation.z = Math.sin(time * 1.2) * 0.01;
+                model.rotation.x += Math.sin(time * 1.0) * 0.0002;
+            }
+
             renderer.render(scene, camera);
         }
 
