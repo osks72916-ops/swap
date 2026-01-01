@@ -1,133 +1,47 @@
 <!DOCTYPE html>
-<html lang="ja">
+<html>
 <head>
-    <meta charset="UTF-8">
-    <title>Weapon Viewer Fixed</title>
-    <script type="module" src="https://ajax.googleapis.com/ajax/libs/model-viewer/3.3.0/model-viewer.min.js"></script>
-    <style>
-        html, body {
-            margin: 0; padding: 0;
-            width: 100vw; height: 100vh;
-            background-color: transparent !important;
-            overflow: hidden;
-            user-select: none;
-            outline: none;
-        }
-        #wrapper {
-            position: absolute; top: 0; left: 0;
-            width: 100%; height: 100%;
-            pointer-events: none;
-            transform-origin: center center;
-        }
-        .hidden { opacity: 0 !important; }
-        model-viewer {
-            width: 100%; height: 100%;
-            background-color: transparent;
-            --poster-color: transparent;
-            pointer-events: auto;
-        }
-    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/0.150.0/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.150.0/examples/js/loaders/GLTFLoader.js"></script>
+    <style>body { margin: 0; overflow: hidden; background: transparent !important; }</style>
 </head>
-<body oncontextmenu="return false;" tabindex="0">
-    <div id="wrapper">
-        <model-viewer
-            id="knife"
-            src="melee_156.glb"
-            disable-zoom
-            disable-tap
-            interaction-prompt="none"
-            shadow-intensity="0"
-            autoplay
-            field-of-view="45deg"
-            camera-orbit="-30deg 80deg 50m"
-        ></model-viewer>
-    </div>
+<body>
     <script>
-        const wrapper = document.getElementById('wrapper');
-        const modelViewer = document.getElementById('knife');
-
-        let config = {
-            posX: 0,
-            posY: 0,
-            orbitX: -30,
-            orbitY: 80,
-            distance: 70  // m
-        };
-
-        let sway = { x: 0, y: 0, rotX: 0, rotY: 0 };
-        let isEditMode = false;
-        let lastMouseX = 0, lastMouseY = 0, isDraggingLeft = false, isDraggingRight = false;
-
-        // 初期 camera-orbit を確実に設定
-        function applyOrbit() {
-            const orbit = `${config.orbitX}deg ${config.orbitY}deg ${config.distance}m`;
-            modelViewer.setAttribute('camera-orbit', orbit);
+        let scene, camera, renderer, model, mixer;
+        const clock = new THREE.Clock();
+        function init() {
+            scene = new THREE.Scene();
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            document.body.appendChild(renderer.domElement);
+            scene.add(new THREE.AmbientLight(0xffffff, 1));
+            const d = new THREE.DirectionalLight(0xffffff, 2); d.position.set(5, 5, 5); scene.add(d);
+            animate();
         }
-        applyOrbit();
-
-        window.addEventListener('message', (event) => {
-            const data = event.data;
-            if (!data) return;
-            if (data.type === 'set-mode') {
-                isEditMode = data.enabled;
-                if (isEditMode) { window.focus(); }
-            }
-            if (data.type === 'set-visible') {
-                if (data.visible) wrapper.classList.remove('hidden');
-                else wrapper.classList.add('hidden');
-            }
-            if (data.type === 'update-transform') {
-                sway.x = data.x; sway.y = data.y;
-                sway.rotX = data.rotateX; sway.rotY = data.rotateY;
-                updateTransform();
-            }
-            if (data.type === 'play-animation') {
-                const foundAnim = modelViewer.availableAnimations?.find(a => a.toLowerCase().includes(data.name.toLowerCase()));
-                if (foundAnim) {
-                    modelViewer.animationName = foundAnim;
-                    modelViewer.currentTime = 0;
-                    modelViewer.play();
-                }
-            }
-            if (data.type === 'wheel') {
-                // 親から転送された wheel delta を使って距離を変更
-                // 感度はここで調整（小さい値にするとよりゆっくり）
-                const sensitivity = 0.05;
-                config.distance += data.deltaY * sensitivity;
-                config.distance = Math.max(10, Math.min(200, config.distance));
-                applyOrbit();
+        window.addEventListener('message', (e) => {
+            const d = e.data;
+            if (d.type === 'load') {
+                if (model) scene.remove(model);
+                new THREE.GLTFLoader().load(d.url, (gltf) => {
+                    model = gltf.scene; scene.add(model);
+                    if (gltf.animations.length) {
+                        mixer = new THREE.AnimationMixer(model);
+                        mixer.clipAction(gltf.animations[0]).play();
+                    }
+                });
+            } else if (model && d.type === 'transform') {
+                model.position.set(d.x, d.y, d.z);
+                model.rotation.y = d.ry;
+                model.scale.set(d.s, d.s, d.s);
             }
         });
-
-        window.addEventListener('mousedown', (e) => {
-            if (!isEditMode) return;
-            lastMouseX = e.clientX; lastMouseY = e.clientY;
-            if (e.button === 0) isDraggingLeft = true;
-            if (e.button === 2) isDraggingRight = true;
-        });
-
-        window.addEventListener('mouseup', () => { isDraggingLeft = false; isDraggingRight = false; });
-
-        window.addEventListener('mousemove', (e) => {
-            if (!isEditMode) return;
-            const deltaX = e.clientX - lastMouseX;
-            const deltaY = e.clientY - lastMouseY;
-            lastMouseX = e.clientX; lastMouseY = e.clientY;
-            if (isDraggingLeft) {
-                config.posX += deltaX; config.posY += deltaY;
-            }
-            if (isDraggingRight) {
-                config.orbitX -= deltaX * 0.5; config.orbitY -= deltaY * 0.5;
-                config.orbitY = Math.max(1, Math.min(179, config.orbitY));
-                const orbit = `${config.orbitX}deg ${config.orbitY}deg ${config.distance}m`;
-                modelViewer.setAttribute('camera-orbit', orbit);
-            }
-            updateTransform();
-        });
-
-        function updateTransform() {
-            wrapper.style.transform = `translate3d(${config.posX + sway.x}px, ${config.posY + sway.y}px, 0) rotateY(${sway.rotY}deg) rotateX(${sway.rotX}deg)`;
+        function animate() {
+            requestAnimationFrame(animate);
+            if (mixer) mixer.update(clock.getDelta());
+            renderer.render(scene, camera);
         }
+        init();
     </script>
 </body>
 </html>
