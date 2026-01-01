@@ -1,196 +1,171 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <meta charset="UTF-8">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/TransformControls.js"></script>
-    <style>body { margin: 0; overflow: hidden; background: transparent !important; }</style>
-    <div id="coordinate_display" style="position:fixed; bottom:10px; right:10px; background:rgba(0,0,0,0.8); color:#00ff00; padding:10px; font-family:monospace; font-size:12px; border-radius:5px; pointer-events:auto; display:none; white-space:pre; border:1px solid #00ff00;">
-クリックして数値をコピー
-</div>
-
-<script>
-// ...既存の変数定義...
-
-// データを親に送る＆画面に表示する
-function sendCurrentData() {
-    basePos.copy(wrapper.position);
-    baseRot.copy(wrapper.rotation);
-    baseScale.copy(wrapper.scale);
-
-    // 固定用コードの生成
-    const codeSnippet = `
-// 以下の数値をビュワーコードの初期値に書き換えてください
-basePos.set(${basePos.x.toFixed(3)}, ${basePos.y.toFixed(3)}, ${basePos.z.toFixed(3)});
-baseRot.set(${baseRot.x.toFixed(3)}, ${baseRot.y.toFixed(3)}, ${baseRot.z.toFixed(3)});
-baseScale.set(${baseScale.x.toFixed(3)}, ${baseScale.y.toFixed(3)}, ${baseScale.z.toFixed(3)});`;
-
-    // 画面に表示
-    const display = document.getElementById('coordinate_display');
-    display.innerText = codeSnippet;
-    display.style.display = "block";
-
-    window.parent.postMessage({
-        type: 'SAVE_DATA',
-        pos: {x: basePos.x, y: basePos.y, z: basePos.z},
-        rot: {x: baseRot.x, y: baseRot.y, z: baseRot.z},
-        s: {x: baseScale.x, y: baseScale.y, z: baseScale.z}
-    }, "*");
-}
-
-// 追加：表示エリアをクリックしたらクリップボードにコピー
-document.getElementById('coordinate_display').onclick = function() {
-    navigator.clipboard.writeText(this.innerText);
-    alert("座標コードをコピーしました！");
-};
-
-// messageリスナー内の visibility 部分を微調整
-if (d.type === 'visibility') {
-    control.enabled = d.show;
-    control.visible = d.show;
-    // エディットモードONの時に表示、OFFの時に非表示（または出しっぱなし）
-    document.getElementById('coordinate_display').style.display = d.show ? "block" : "none";
-    if (!d.show) sendCurrentData();
-}
-</script>
+  <meta charset="UTF-8">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/TransformControls.js"></script>
+  <style>
+    body { margin: 0; overflow: hidden; background: transparent !important; }
+    #coord_display {
+      position: fixed; bottom: 20px; right: 20px;
+      background: rgba(0, 0, 0, 0.85); color: #00ff00;
+      padding: 15px; font-family: 'Consolas', monospace; font-size: 11px;
+      border: 1px solid #00ff00; border-radius: 8px;
+      display: none; pointer-events: auto; cursor: pointer;
+      z-index: 10000; box-shadow: 0 0 10px rgba(0,255,0,0.3);
+    }
+    #coord_display:hover { background: rgba(0, 40, 0, 0.9); }
+    #coord_display::before { content: "【CLICK TO COPY CODE】"; display: block; font-weight: bold; margin-bottom: 5px; color: #fff; }
+  </style>
 </head>
 <body>
-    <script>
-        const MODEL_URL = "melee_156.glb"; 
+  <div id="coord_display"></div>
+  <script>
+    const MODEL_URL = "melee_156.glb";
+    let scene, camera, renderer, model, mixer, control, wrapper;
+    let idleAction, inspectAction;
+    let isInspecting = false;
+    const clock = new THREE.Clock();
 
-        let scene, camera, renderer, model, mixer, control, wrapper;
-        let idleAction, inspectAction;
-        let isInspecting = false;
-        const clock = new THREE.Clock();
+    // ★ここの数値を後で書き換えることで固定化されます
+    let basePos = new THREE.Vector3(1.5, -1.5, -3); 
+    let baseRot = new THREE.Euler(0, -Math.PI/2, 0);
+    let baseScale = new THREE.Vector3(1, 1, 1);
 
-        let basePos = new THREE.Vector3(1.5, -1.5, -3); 
-        let baseRot = new THREE.Euler(0, -Math.PI/2, 0);
-        let baseScale = new THREE.Vector3(1, 1, 1);
-        let offsetPos = new THREE.Vector3(), offsetRot = new THREE.Euler();
+    let offsetPos = new THREE.Vector3(), offsetRot = new THREE.Euler();
 
-        function init() {
-            scene = new THREE.Scene();
-            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-            camera.position.set(0, 0, 5);
+    function init() {
+      scene = new THREE.Scene();
+      camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+      camera.position.set(0, 0, 5);
 
-            renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
-            renderer.setPixelRatio(window.devicePixelRatio);
-            renderer.setSize(window.innerWidth, window.innerHeight);
-            renderer.setClearColor(0x000000, 0);
-            document.body.appendChild(renderer.domElement);
+      renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+      renderer.setPixelRatio(window.devicePixelRatio);
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      document.body.appendChild(renderer.domElement);
 
-            scene.add(new THREE.AmbientLight(0xffffff, 1.5));
-            const sun = new THREE.DirectionalLight(0xffffff, 1.2);
-            sun.position.set(5, 5, 5);
-            scene.add(sun);
+      scene.add(new THREE.AmbientLight(0xffffff, 1.5));
+      const sun = new THREE.DirectionalLight(0xffffff, 1.2);
+      sun.position.set(5, 5, 5);
+      scene.add(sun);
 
-            wrapper = new THREE.Group();
-            wrapper.position.copy(basePos);
-            wrapper.rotation.copy(baseRot);
-            scene.add(wrapper);
+      wrapper = new THREE.Group();
+      wrapper.position.copy(basePos);
+      wrapper.rotation.copy(baseRot);
+      wrapper.scale.copy(baseScale);
+      scene.add(wrapper);
 
-            control = new THREE.TransformControls(camera, renderer.domElement);
-            scene.add(control);
+      control = new THREE.TransformControls(camera, renderer.domElement);
+      // ギズモ操作中にモデルが動かないようイベント設定
+      control.addEventListener('dragging-changed', (e) => {
+        if (!e.value) updateDisplay(); 
+      });
+      scene.add(control);
 
-            loadModel(MODEL_URL);
-            animate();
-            window.parent.postMessage({ type: 'VIEWER_READY' }, "*");
+      loadModel(MODEL_URL);
+      animate();
+      window.parent.postMessage({ type: 'VIEWER_READY' }, "*");
+    }
+
+    function loadModel(url) {
+      new THREE.GLTFLoader().load(url, (gltf) => {
+        model = gltf.scene;
+        wrapper.add(model);
+        if (gltf.animations.length > 0) {
+          mixer = new THREE.AnimationMixer(model);
+          idleAction = mixer.clipAction(gltf.animations[0]);
+          idleAction.setEffectiveTimeScale(0.4);
+          idleAction.play();
+          const inspectClip = gltf.animations[1] || gltf.animations[0];
+          inspectAction = mixer.clipAction(inspectClip);
+          inspectAction.setLoop(THREE.LoopOnce);
+          inspectAction.clampWhenFinished = true;
+          mixer.addEventListener('finished', (e) => {
+            if (e.action === inspectAction) {
+              inspectAction.fadeOut(0.5);
+              idleAction.reset().fadeIn(0.5).play();
+              isInspecting = false;
+            }
+          });
         }
+      });
+    }
 
-        function loadModel(url) {
-            new THREE.GLTFLoader().load(url, (gltf) => {
-                model = gltf.scene;
-                wrapper.add(model);
-                control.attach(wrapper);
-                if (gltf.animations.length > 0) {
-                    mixer = new THREE.AnimationMixer(model);
-                    idleAction = mixer.clipAction(gltf.animations[0]);
-                    idleAction.setEffectiveTimeScale(0.4);
-                    idleAction.play();
-                    const inspectClip = gltf.animations[1] || gltf.animations[0];
-                    inspectAction = mixer.clipAction(inspectClip);
-                    inspectAction.setLoop(THREE.LoopOnce);
-                    inspectAction.clampWhenFinished = true;
-                    mixer.addEventListener('finished', (e) => {
-                        if (e.action === inspectAction) {
-                            inspectAction.fadeOut(0.5);
-                            idleAction.reset().fadeIn(0.5).play();
-                            isInspecting = false;
-                        }
-                    });
-                }
-            });
-        }
+    function updateDisplay() {
+      const p = wrapper.position;
+      const r = wrapper.rotation;
+      const s = wrapper.scale;
+      
+      const code = `basePos.set(${p.x.toFixed(3)}, ${p.y.toFixed(3)}, ${p.z.toFixed(3)});\n` +
+                   `baseRot.set(${r.x.toFixed(3)}, ${r.y.toFixed(3)}, ${r.z.toFixed(3)});\n` +
+                   `baseScale.set(${s.x.toFixed(3)}, ${s.y.toFixed(3)}, ${s.z.toFixed(3)});`;
+      
+      const el = document.getElementById('coord_display');
+      el.innerText = code;
+      
+      // 親（スクリプト）にもデータを送信
+      window.parent.postMessage({
+        type: 'SAVE_DATA',
+        pos: {x: p.x, y: p.y, z: p.z},
+        rot: {x: r.x, y: r.y, z: r.z},
+        s: {x: s.x, y: s.y, z: s.z}
+      }, "*");
+    }
 
-        // データを親に送る共通関数
-        function sendCurrentData() {
-            // 現在のwrapper(箱)の値を基準値として更新してから送る
-            basePos.copy(wrapper.position);
-            baseRot.copy(wrapper.rotation);
-            baseScale.copy(wrapper.scale);
+    document.getElementById('coord_display').onclick = function() {
+      navigator.clipboard.writeText(this.innerText);
+      alert("座標コードをコピーしました！");
+    };
 
-            window.parent.postMessage({
-                type: 'SAVE_DATA',
-                pos: {x: basePos.x, y: basePos.y, z: basePos.z},
-                rot: {x: baseRot.x, y: baseRot.y, z: baseRot.z},
-                s: {x: baseScale.x, y: baseScale.y, z: baseScale.z}
-            }, "*");
-        }
+    window.addEventListener('message', (e) => {
+      const d = e.data;
+      if (d.type === 'mode') control.setMode(d.mode);
+      if (d.type === 'visibility') {
+        control.enabled = d.show;
+        control.visible = d.show;
+        document.getElementById('coord_display').style.display = d.show ? "block" : "none";
+        if (d.show) control.attach(wrapper);
+        else control.detach();
+      }
+      if (d.type === 'REQUEST_SAVE') updateDisplay();
+      if (d.type === 'APPLY_DATA') {
+        wrapper.position.set(d.pos.x, d.pos.y, d.pos.z);
+        wrapper.rotation.set(d.rot.x, d.rot.y, d.rot.z);
+        wrapper.scale.set(d.s.x, d.s.y, d.s.z);
+        basePos.copy(wrapper.position);
+        baseRot.copy(wrapper.rotation);
+        baseScale.copy(wrapper.scale);
+      }
+      if (d.type === 'play_animation' && !isInspecting && !control.enabled) {
+        isInspecting = true;
+        idleAction?.fadeOut(0.2);
+        inspectAction?.reset().fadeIn(0.2).play();
+      }
+      if (d.type === 'mouse_move' && !control.enabled) {
+        offsetRot.y -= d.mx * 0.0004; offsetRot.x -= d.my * 0.0004;
+        offsetPos.x -= d.mx * 0.00015; offsetPos.y += d.my * 0.00015;
+      }
+    });
 
-        window.addEventListener('message', (e) => {
-            const d = e.data;
-            if (d.type === 'mode') control.setMode(d.mode);
-            
-            if (d.type === 'visibility') {
-                control.enabled = d.show;
-                control.visible = d.show;
-                if (!d.show) sendCurrentData(); // Edit OFF時も保存
-            }
-
-            // ★親からの「保存せよ(Lキー)」の命令
-            if (d.type === 'REQUEST_SAVE') sendCurrentData();
-
-            if (d.type === 'APPLY_DATA') {
-                basePos.set(d.pos.x, d.pos.y, d.pos.z);
-                baseRot.set(d.rot.x, d.rot.y, d.rot.z);
-                baseScale.set(d.s.x, d.s.y, d.s.z);
-                wrapper.position.copy(basePos);
-                wrapper.rotation.copy(baseRot);
-                wrapper.scale.copy(baseScale);
-            }
-
-            if (d.type === 'play_animation' && !isInspecting && !control.enabled) {
-                isInspecting = true;
-                idleAction.fadeOut(0.2);
-                inspectAction.reset().fadeIn(0.2).play();
-            }
-
-            if (d.type === 'mouse_move' && !control.enabled) {
-                offsetRot.y -= d.mx * 0.0004; offsetRot.x -= d.my * 0.0004;
-                offsetPos.x -= d.mx * 0.00015; offsetPos.y += d.my * 0.00015;
-            }
-        });
-
-        function animate() {
-            requestAnimationFrame(animate);
-            const delta = clock.getDelta();
-            const time = performance.now() * 0.001;
-            if (mixer) mixer.update(delta);
-            if (wrapper && !control.enabled) {
-                offsetRot.x *= Math.pow(0.9, delta * 60);
-                offsetRot.y *= Math.pow(0.9, delta * 60);
-                offsetPos.x *= Math.pow(0.85, delta * 60);
-                offsetPos.y *= Math.pow(0.85, delta * 60);
-                const breatheY = Math.sin(time * 1.5) * 0.015;
-                const swayStr = isInspecting ? 0.15 : 1.0; 
-                wrapper.position.set(basePos.x + offsetPos.x * swayStr, basePos.y + (offsetPos.y + breatheY) * swayStr, basePos.z);
-                wrapper.rotation.set(baseRot.x + offsetRot.x * swayStr, baseRot.y + offsetRot.y * swayStr, baseRot.z + (offsetRot.y * 0.5 * swayStr));
-                wrapper.scale.copy(baseScale);
-            }
-            renderer.render(scene, camera);
-        }
-        init();
-    </script>
+    function animate() {
+      requestAnimationFrame(animate);
+      const delta = clock.getDelta();
+      if (mixer) mixer.update(delta);
+      if (wrapper && !control.enabled) {
+        const t = performance.now() * 0.001;
+        offsetRot.x *= Math.pow(0.9, delta * 60);
+        offsetRot.y *= Math.pow(0.9, delta * 60);
+        offsetPos.x *= Math.pow(0.85, delta * 60);
+        offsetPos.y *= Math.pow(0.85, delta * 60);
+        const breatheY = Math.sin(t * 1.5) * 0.015;
+        const s = isInspecting ? 0.15 : 1.0; 
+        wrapper.position.set(basePos.x + offsetPos.x * s, basePos.y + (offsetPos.y + breatheY) * s, basePos.z);
+        wrapper.rotation.set(baseRot.x + offsetRot.x * s, baseRot.y + offsetRot.y * s, baseRot.z + (offsetRot.y * 0.5 * s));
+      }
+      renderer.render(scene, camera);
+    }
+    init();
+  </script>
 </body>
 </html>
