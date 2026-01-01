@@ -26,44 +26,48 @@
             --poster-color: transparent;
             pointer-events: auto;
         }
-        /* デバッグ表示を完全に削除しました */
     </style>
 </head>
 <body oncontextmenu="return false;" tabindex="0">
-
     <div id="wrapper">
         <model-viewer
             id="knife"
-            src="melee_156.glb" 
+            src="melee_156.glb"
             disable-zoom
             disable-tap
             interaction-prompt="none"
             shadow-intensity="0"
             autoplay
             field-of-view="45deg"
-            camera-orbit="-30deg 80deg 70m" 
+            camera-orbit="-30deg 80deg 70m"
         ></model-viewer>
     </div>
-
     <script>
         const wrapper = document.getElementById('wrapper');
         const modelViewer = document.getElementById('knife');
 
-        let config = { 
-            posX: 0, 
-            posY: 0, 
-            orbitX: -30, 
-            orbitY: 80, 
-            distance: 70  // 70mで固定
+        let config = {
+            posX: 0,
+            posY: 0,
+            orbitX: -30,
+            orbitY: 80,
+            distance: 70  // m
         };
 
         let sway = { x: 0, y: 0, rotX: 0, rotY: 0 };
         let isEditMode = false;
-        let lastMouseX = 0, lastMouseY = 0;
-        let isDraggingLeft = false, isDraggingRight = false;
+        let lastMouseX = 0, lastMouseY = 0, isDraggingLeft = false, isDraggingRight = false;
+
+        // 初期 camera-orbit を確実に設定
+        function applyOrbit() {
+            const orbit = `${config.orbitX}deg ${config.orbitY}deg ${config.distance}m`;
+            modelViewer.setAttribute('camera-orbit', orbit);
+        }
+        applyOrbit();
 
         window.addEventListener('message', (event) => {
             const data = event.data;
+            if (!data) return;
             if (data.type === 'set-mode') {
                 isEditMode = data.enabled;
                 if (isEditMode) { window.focus(); }
@@ -85,6 +89,14 @@
                     modelViewer.play();
                 }
             }
+            if (data.type === 'wheel') {
+                // 親から転送された wheel delta を使って距離を変更
+                // 感度はここで調整（小さい値にするとよりゆっくり）
+                const sensitivity = 0.05;
+                config.distance += data.deltaY * sensitivity;
+                config.distance = Math.max(10, Math.min(200, config.distance));
+                applyOrbit();
+            }
         });
 
         window.addEventListener('mousedown', (e) => {
@@ -93,13 +105,14 @@
             if (e.button === 0) isDraggingLeft = true;
             if (e.button === 2) isDraggingRight = true;
         });
+
         window.addEventListener('mouseup', () => { isDraggingLeft = false; isDraggingRight = false; });
+
         window.addEventListener('mousemove', (e) => {
             if (!isEditMode) return;
             const deltaX = e.clientX - lastMouseX;
             const deltaY = e.clientY - lastMouseY;
             lastMouseX = e.clientX; lastMouseY = e.clientY;
-
             if (isDraggingLeft) {
                 config.posX += deltaX; config.posY += deltaY;
             }
