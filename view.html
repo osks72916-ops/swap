@@ -14,11 +14,12 @@
     let isInspecting = false;
     const clock = new THREE.Clock();
 
-    // ★ご指定の座標で固定
+    // ★画像から取得した固定座標（直接書き込み）
     const basePos = new THREE.Vector3(3.411, -3.014, -3.000); 
     const baseRot = new THREE.Euler(2.170, 0.357, -1.298);
     const baseScale = new THREE.Vector3(2.509, 2.509, 2.509);
 
+    // 視点追従（マウス移動）用のオフセット変数
     let offsetPos = new THREE.Vector3(), offsetRot = new THREE.Euler();
 
     function init() {
@@ -72,18 +73,23 @@
       });
     }
 
+    // ユーザースクリプトからの信号（マウス移動・Qキー）を受信
     window.addEventListener('message', (e) => {
       const d = e.data;
-      // インスペクト命令
+      
+      // Qキーによるインスペクト再生
       if (d.type === 'play_animation' && !isInspecting) {
         isInspecting = true;
         idleAction?.fadeOut(0.2);
         inspectAction?.reset().fadeIn(0.2).play();
       }
-      // マウス追従用
+      
+      // マウス移動による視点追従（追従機能は維持）
       if (d.type === 'mouse_move') {
-        offsetRot.y -= d.mx * 0.0004; offsetRot.x -= d.my * 0.0004;
-        offsetPos.x -= d.mx * 0.00015; offsetPos.y += d.my * 0.00015;
+        offsetRot.y -= d.mx * 0.0004; 
+        offsetRot.x -= d.my * 0.0004;
+        offsetPos.x -= d.mx * 0.00015; 
+        offsetPos.y += d.my * 0.00015;
       }
     });
 
@@ -93,14 +99,17 @@
       if (mixer) mixer.update(delta);
       
       const t = performance.now() * 0.001;
+      
+      // 慣性（スムーズに元に戻る計算）
       offsetRot.x *= Math.pow(0.9, delta * 60);
       offsetRot.y *= Math.pow(0.9, delta * 60);
       offsetPos.x *= Math.pow(0.85, delta * 60);
       offsetPos.y *= Math.pow(0.85, delta * 60);
       
       const breatheY = Math.sin(t * 1.5) * 0.015;
-      const s = isInspecting ? 0.15 : 1.0; 
+      const s = isInspecting ? 0.15 : 1.0; // インスペクト中は揺れを抑える
       
+      // 固定座標 + マウス追従分 + 呼吸エフェクトを合算
       wrapper.position.set(basePos.x + offsetPos.x * s, basePos.y + (offsetPos.y + breatheY) * s, basePos.z);
       wrapper.rotation.set(baseRot.x + offsetRot.x * s, baseRot.y + offsetRot.y * s, baseRot.z + (offsetRot.y * 0.5 * s));
       
