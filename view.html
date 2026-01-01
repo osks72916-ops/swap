@@ -15,11 +15,14 @@
         let idleAction, inspectAction;
         const clock = new THREE.Clock();
 
-        // マウス追従用の変数
-        let targetRotationX = 0;
-        let targetRotationY = 0;
-        let targetPosX = 0;
-        let targetPosY = 0;
+        // ★編集後の位置を保持するための変数
+        let basePos = new THREE.Vector3(0, 0, 0);
+        let baseRot = new THREE.Euler(0, 0, 0);
+        let baseScale = new THREE.Vector3(1, 1, 1);
+
+        // マウス追従用のオフセット変数
+        let offsetPosX = 0, offsetPosY = 0;
+        let offsetRotX = 0, offsetRotY = 0;
 
         function init() {
             scene = new THREE.Scene();
@@ -56,7 +59,6 @@
                     idleAction = mixer.clipAction(gltf.animations[0]);
                     idleAction.setEffectiveTimeScale(0.4);
                     idleAction.play();
-
                     const inspectClip = gltf.animations[1] || gltf.animations[0];
                     inspectAction = mixer.clipAction(inspectClip);
                     inspectAction.setLoop(THREE.LoopOnce);
@@ -68,10 +70,22 @@
         window.addEventListener('message', (e) => {
             const d = e.data;
             if (d.type === 'mode') control.setMode(d.mode);
+            
             if (d.type === 'visibility') {
                 control.enabled = d.show;
                 control.visible = d.show;
+
+                // ★編集モードを終了(OFF)にした瞬間に、現在の位置を「基準」として保存する
+                if (!d.show && model) {
+                    basePos.copy(model.position);
+                    baseRot.copy(model.rotation);
+                    baseScale.copy(model.scale);
+                    // オフセットをリセットして急な移動を防ぐ
+                    offsetPosX = 0; offsetPosY = 0;
+                    offsetRotX = 0; offsetRotY = 0;
+                }
             }
+
             if (d.type === 'play_animation') {
                 if (inspectAction) {
                     inspectAction.reset();
@@ -79,13 +93,12 @@
                     setTimeout(() => { idleAction.reset().fadeIn(0.5).play(); }, (inspectAction.getClip().duration * 1000));
                 }
             }
-            // ★マウス移動量を受け取る
+
             if (d.type === 'mouse_move' && !control.enabled) {
-                // 移動量に応じて目標の回転と位置を計算 (数値を変えると揺れ具合が変わります)
-                targetRotationY -= d.mx * 0.0005; 
-                targetRotationX -= d.my * 0.0005;
-                targetPosX -= d.mx * 0.0002;
-                targetPosY += d.my * 0.0002;
+                offsetRotY -= d.mx * 0.0005; 
+                offsetRotX -= d.my * 0.0005;
+                offsetPosX -= d.mx * 0.0002;
+                offsetPosY += d.my * 0.0002;
             }
         });
 
@@ -96,26 +109,27 @@
 
             if (mixer) mixer.update(delta);
 
+            // ★固定モード(Edit OFF)の時だけ、保存した基準位置に揺れを加える
             if (model && !control.enabled) {
-                // 1. 基本の「ゆっくりした揺れ（呼吸）」
+                // 慣性（ゆっくり戻る処理）
+                offsetRotX *= 0.92;
+                offsetRotY *= 0.92;
+                offsetPosX *= 0.9;
+                offsetPosY *= 0.9;
+
+                // 呼吸の揺れ
                 const breatheY = Math.sin(time * 1.5) * 0.02;
-                const breatheX = Math.cos(time * 1.2) * 0.01;
 
-                // 2. マウス追従（滑らかに目標値へ近づける Lerp）
-                // 回転をゆっくり0に戻そうとする力
-                targetRotationX *= 0.92;
-                targetRotationY *= 0.92;
-                targetPosX *= 0.9;
-                targetPosY *= 0.9;
+                // 基準位置(base) + 揺れオフセット を適用
+                model.position.x = basePos.x + offsetPosX;
+                model.position.y = basePos.y + offsetPosY + breatheY;
+                model.position.z = basePos.z;
 
-                // モデルの座標と回転に適用
-                model.rotation.x += (targetRotationX - model.rotation.x) * 0.1;
-                model.rotation.y += (targetRotationY - model.rotation.y) * 0.1;
-                model.rotation.z = Math.sin(time * 1.2) * 0.01 + (targetRotationY * 0.5); // 左右移動で少し傾く
+                model.rotation.x = baseRot.x + offsetRotX;
+                model.rotation.y = baseRot.y + offsetRotY;
+                model.rotation.z = baseRot.z + (offsetRotY * 0.5); // 左右移動での傾き
 
-                // 位置の微調整（マウス移動方向に少しズレる）
-                model.position.x += (targetPosX - model.position.x) * 0.1;
-                model.position.y += (targetPosY + breatheY - model.position.y) * 0.1;
+                model.scale.copy(baseScale); // スケールはそのまま
             }
 
             renderer.render(scene, camera);
@@ -129,4 +143,3 @@
         init();
     </script>
 </body>
-</html>
