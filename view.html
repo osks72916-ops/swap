@@ -20,15 +20,11 @@
             width: 100%; height: 100%;
             pointer-events: none;
             transform-origin: center center;
-            /* 表示・非表示のアニメーション */
             transition: opacity 0.2s; 
             opacity: 1; 
         }
 
-        /* 非表示クラス */
-        .hidden {
-            opacity: 0 !important;
-        }
+        .hidden { opacity: 0 !important; }
 
         model-viewer {
             width: 100%; height: 100%;
@@ -47,6 +43,7 @@
             disable-zoom
             disable-tap
             interaction-prompt="none"
+            shadow-intensity="0"
             autoplay
             field-of-view="45deg" 
         ></model-viewer>
@@ -56,7 +53,8 @@
         const wrapper = document.getElementById('wrapper');
         const modelViewer = document.getElementById('knife');
 
-        let config = { posX: 0, posY: 0, orbitX: -30, orbitY: 80, distance: 5 }; // 初期距離を遠めに
+        // 初期設定
+        let config = { posX: 0, posY: 0, orbitX: -30, orbitY: 80, distance: 5 };
         let sway = { x: 0, y: 0, rotX: 0, rotY: 0 };
         let isEditMode = false;
         
@@ -66,27 +64,20 @@
         updateCamera();
         updateTransform();
 
-        // メッセージ受信
         window.addEventListener('message', (event) => {
             const data = event.data;
 
-            // モード切替
             if (data.type === 'set-mode') {
                 isEditMode = data.enabled;
                 document.body.style.cursor = isEditMode ? 'move' : 'default';
                 if (isEditMode) { window.focus(); document.body.focus(); }
             }
 
-            // 表示・非表示 (武器チェンジ用)
             if (data.type === 'set-visible') {
-                if (data.visible) {
-                    wrapper.classList.remove('hidden');
-                } else {
-                    wrapper.classList.add('hidden');
-                }
+                if (data.visible) wrapper.classList.remove('hidden');
+                else wrapper.classList.add('hidden');
             }
 
-            // 揺れ更新
             if (data.type === 'update-transform') {
                 if (!isEditMode) {
                     sway.x = data.x; sway.y = data.y;
@@ -97,7 +88,6 @@
                 updateTransform();
             }
 
-            // アニメーション
             if (data.type === 'play-animation') {
                 const animName = data.name;
                 if(modelViewer.availableAnimations){
@@ -111,14 +101,12 @@
             }
         });
 
-        // Bキー検知
         window.addEventListener('keydown', (e) => {
             if (e.code === 'KeyB' || e.key.toLowerCase() === 'b') {
                 window.parent.postMessage({ type: 'toggle-mode-request' }, '*');
             }
         });
 
-        // マウス操作
         window.addEventListener('mousedown', (e) => {
             if (!isEditMode) return;
             window.focus();
@@ -153,13 +141,20 @@
             }
         });
 
-        // === 縮小限界突破 ===
+        // ============================================
+        //  ここを修正しました（逆回転・限界突破）
+        // ============================================
         window.addEventListener('wheel', (e) => {
             if (!isEditMode) return;
-            // 感度を上げて回しやすく
-            config.distance += e.deltaY * 0.05; 
-            // 最小0.1m ～ 最大500m (これでめちゃくちゃ小さくできます)
-            config.distance = Math.max(0.1, Math.min(500, config.distance));
+            
+            // 方向を逆にしました (-=)
+            // 感度を 0.1 に上げました
+            config.distance -= e.deltaY * 0.1; 
+            
+            // 最小 0.1m ～ 最大 1000m まで許可
+            // 距離(distance)が大きくなるほど、物体は小さく見えます
+            config.distance = Math.max(0.1, Math.min(1000, config.distance));
+            
             updateCamera();
         }, { passive: false });
 
