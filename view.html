@@ -3,10 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <title>Weapon Viewer</title>
-    <!-- Google Model Viewerの読み込み -->
+    <!-- Model Viewer -->
     <script type="module" src="https://ajax.googleapis.com/ajax/libs/model-viewer/3.3.0/model-viewer.min.js"></script>
     <style>
-        /* 背景を完全に透明にする設定 */
+        /* 背景透過と基本設定 */
         html, body {
             margin: 0;
             padding: 0;
@@ -15,57 +15,107 @@
             background-color: transparent !important;
             overflow: hidden;
         }
-        /* モデルビュワーの設定 */
+
+        /* 武器を包むコンテナ（画面全体を使うが、配置は右下にする） */
+        #wrapper {
+            position: absolute;
+            bottom: 0;
+            right: 0;
+            /* ここで武器の表示領域の大きさを決めます */
+            /* 画面全体に広げることで描画切れを防ぎます */
+            width: 100%; 
+            height: 100%; 
+            pointer-events: none; /* 入力を無視 */
+            
+            /* 揺れのアニメーション用 */
+            transform-origin: bottom right;
+            transition: transform 0.05s linear; 
+        }
+
+        /* モデルビュワー本体 */
         model-viewer {
             width: 100%;
             height: 100%;
             background-color: transparent;
             --poster-color: transparent;
-        }
-        /* 武器全体を動かすためのコンテナ */
-        #container {
-            width: 100%;
-            height: 100%;
-            /* 初期位置 */
-            transform-origin: bottom right;
-            transition: transform 0.05s linear; 
+            
+            /* 武器の位置調整はここで margin や padding を使うのではなく
+               camera-orbit や camera-target で調整するのがベストです */
         }
     </style>
 </head>
 <body>
 
-    <div id="container">
-        <!-- src="knife.glb" の部分は自分のファイル名に変えてください -->
+    <div id="wrapper">
+        <!-- 
+            animation-name: 初期再生するアニメーション名（Idleなど）
+            autoplay: 自動再生
+        -->
         <model-viewer
+            id="knife"
             src="melee_156.glb" 
             camera-controls
             disable-zoom
             disable-tap
             interaction-prompt="none"
-            camera-orbit="-20deg 80deg 2.5m"
+            camera-orbit="-30deg 80deg 2.5m" 
             field-of-view="30deg"
             shadow-intensity="1"
-            environment-image="neutral"
+            autoplay
         ></model-viewer>
     </div>
 
     <script>
-        const container = document.getElementById('container');
+        const wrapper = document.getElementById('wrapper');
+        const modelViewer = document.getElementById('knife');
+        let availableAnimations = [];
 
-        // Voxiom側（親ウィンドウ）からのメッセージを受け取る
-        window.addEventListener('message', (event) => {
-            // セキュリティのため、本来は送信元(origin)をチェックすべきですが
-            // ローカルテスト用に一旦全許可しています
+        // モデルがロードされたらアニメーションリストを取得
+        modelViewer.addEventListener('load', () => {
+            availableAnimations = modelViewer.availableAnimations;
+            console.log("利用可能なアニメーション一覧:", availableAnimations);
             
+            // 例: もし 'Idle' という名前のアニメーションがあれば初期設定にする
+            if (availableAnimations.includes('Idle')) {
+                modelViewer.animationName = 'Idle';
+            }
+        });
+
+        // アニメーションが一周終わったら Idle に戻す処理 (攻撃モーション等の後)
+        modelViewer.addEventListener('finished', () => {
+            // 'Idle' がある場合のみ戻す（なければ止まるかループ設定による）
+            if (availableAnimations.includes('Idle')) {
+                modelViewer.animationName = 'Idle';
+            }
+        });
+
+        // Voxiom側からのメッセージ受信
+        window.addEventListener('message', (event) => {
             const data = event.data;
 
+            // 1. 位置の更新 (Sway & Bobbing)
             if (data.type === 'update-transform') {
-                // 受け取った計算結果をCSSに適用
-                container.style.transform = `
+                wrapper.style.transform = `
                     translate3d(${data.x}px, ${data.y}px, 0)
                     rotateY(${data.rotateY}deg)
                     rotateX(${data.rotateX}deg)
                 `;
+            }
+
+            // 2. アニメーション再生指令
+            if (data.type === 'play-animation') {
+                // 指令されたアニメーション名（'Attack'など）がGLBに含まれているか確認
+                // 大文字小文字を区別せず検索する便利機能を追加
+                const animName = data.name;
+                const foundAnim = availableAnimations.find(a => a.toLowerCase().includes(animName.toLowerCase()));
+
+                if (foundAnim) {
+                    modelViewer.animationName = foundAnim;
+                    modelViewer.currentTime = 0; // 最初から再生
+                    modelViewer.play();
+                } else {
+                    console.log(`アニメーション "${animName}" はモデルに含まれていません。`);
+                }
             }
         });
     </script>
