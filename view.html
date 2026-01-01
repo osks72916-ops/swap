@@ -12,10 +12,11 @@
         const MODEL_URL = "melee_156.glb"; 
 
         let scene, camera, renderer, model, mixer, control, wrapper;
-        let idleAction, inspectAction, isInspecting = false;
+        let idleAction, inspectAction;
+        let isInspecting = false;
         const clock = new THREE.Clock();
 
-        // 座標管理
+        // 座標の基準値
         let basePos = new THREE.Vector3(1.5, -1.5, -3); 
         let baseRot = new THREE.Euler(0, -Math.PI/2, 0);
         let baseScale = new THREE.Vector3(1, 1, 1);
@@ -47,6 +48,9 @@
 
             loadModel(MODEL_URL);
             animate();
+
+            // 親に準備完了を通知
+            window.parent.postMessage({ type: 'VIEWER_READY' }, "*");
         }
 
         function loadModel(url) {
@@ -54,25 +58,27 @@
                 model = gltf.scene;
                 wrapper.add(model);
                 control.attach(wrapper);
+
                 if (gltf.animations.length > 0) {
                     mixer = new THREE.AnimationMixer(model);
                     idleAction = mixer.clipAction(gltf.animations[0]);
                     idleAction.setEffectiveTimeScale(0.4);
                     idleAction.play();
+
                     const inspectClip = gltf.animations[1] || gltf.animations[0];
                     inspectAction = mixer.clipAction(inspectClip);
                     inspectAction.setLoop(THREE.LoopOnce);
                     inspectAction.clampWhenFinished = true;
-                    mixer.addEventListener('finished', (e) => { if (e.action === inspectAction) stopInspect(); });
+
+                    mixer.addEventListener('finished', (e) => {
+                        if (e.action === inspectAction) {
+                            inspectAction.fadeOut(0.5);
+                            idleAction.reset().fadeIn(0.5).play();
+                            isInspecting = false;
+                        }
+                    });
                 }
             });
-        }
-
-        function stopInspect() {
-            if (!inspectAction) return;
-            inspectAction.fadeOut(0.5);
-            idleAction.reset().fadeIn(0.5).play();
-            isInspecting = false;
         }
 
         window.addEventListener('message', (e) => {
@@ -86,9 +92,9 @@
                     basePos.copy(wrapper.position);
                     baseRot.copy(wrapper.rotation);
                     baseScale.copy(wrapper.scale);
-                    // 親に「最新の座標」を保存させるために送り返す
+                    // 保存命令を親に送る
                     window.parent.postMessage({
-                        type: 'save_data',
+                        type: 'SAVE_DATA',
                         pos: {x: basePos.x, y: basePos.y, z: basePos.z},
                         rot: {x: baseRot.x, y: baseRot.y, z: baseRot.z},
                         s: {x: baseScale.x, y: baseScale.y, z: baseScale.z}
@@ -96,8 +102,8 @@
                 }
             }
 
-            // ★保存されていたデータを適用する
-            if (d.type === 'apply_saved_data') {
+            // 親から保存データを受け取って適用
+            if (d.type === 'APPLY_DATA') {
                 basePos.set(d.pos.x, d.pos.y, d.pos.z);
                 baseRot.set(d.rot.x, d.rot.y, d.rot.z);
                 baseScale.set(d.s.x, d.s.y, d.s.z);
@@ -106,6 +112,7 @@
                 wrapper.scale.copy(baseScale);
             }
 
+            // ★インスペクト再生
             if (d.type === 'play_animation' && !isInspecting && !control.enabled) {
                 isInspecting = true;
                 idleAction.fadeOut(0.2);
@@ -124,18 +131,23 @@
             requestAnimationFrame(animate);
             const delta = clock.getDelta();
             const time = performance.now() * 0.001;
+
             if (mixer) mixer.update(delta);
+
             if (wrapper && !control.enabled) {
                 offsetRot.x *= Math.pow(0.9, delta * 60);
                 offsetRot.y *= Math.pow(0.9, delta * 60);
                 offsetPos.x *= Math.pow(0.85, delta * 60);
                 offsetPos.y *= Math.pow(0.85, delta * 60);
+
                 const breatheY = Math.sin(time * 1.5) * 0.015;
                 const swayStr = isInspecting ? 0.15 : 1.0; 
+
                 wrapper.position.set(basePos.x + offsetPos.x * swayStr, basePos.y + (offsetPos.y + breatheY) * swayStr, basePos.z);
                 wrapper.rotation.set(baseRot.x + offsetRot.x * swayStr, baseRot.y + offsetRot.y * swayStr, baseRot.z + (offsetRot.y * 0.5 * swayStr));
                 wrapper.scale.copy(baseScale);
             }
+
             renderer.render(scene, camera);
         }
 
