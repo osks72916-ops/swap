@@ -2,56 +2,44 @@
 <html>
 <head>
     <style>
-        body { margin: 0; overflow: hidden; background: transparent; }
-        model-viewer {
-            width: 100vw; height: 100vh;
-            background-color: transparent;
-            --poster-color: transparent;
+        body { margin: 0; padding: 0; overflow: hidden; background: transparent; width: 100vw; height: 100vh; }
+        /* モデルを表示する枠を右下に配置 */
+        .weapon-wrapper {
             position: absolute;
-            bottom: -50px; /* 腕の付け根を少し隠す */
-            right: -20px;
-            transition: transform 0.1s ease-out; /* 慣性（ラグ） */
+            bottom: 0;
+            right: 0;
+            width: 500px; /* 十分な広さを確保 */
+            height: 500px;
+            display: flex;
+            align-items: flex-end;
+            justify-content: flex-end;
+        }
+        model-viewer {
+            width: 100%; height: 100%;
+            background: transparent;
         }
     </style>
     <script type="module" src="https://ajax.googleapis.com/ajax/libs/model-viewer/3.4.0/model-viewer.min.js"></script>
 </head>
 <body>
-    <model-viewer 
-        id="mv"
-        src="melee_156.glb" 
-        autoplay 
-        camera-orbit="45deg 75deg 2m" 
-        interaction-prompt="none">
-    </model-viewer>
+    <div class="weapon-wrapper" id="wrapper">
+        <model-viewer id="mv" src="melee_156.glb" autoplay interaction-prompt="none" camera-orbit="45deg 75deg 2m"></model-viewer>
+    </div>
 
     <script>
+        const wrapper = document.getElementById('wrapper');
         const mv = document.getElementById('mv');
+
         window.addEventListener('message', (e) => {
-            if (e.data.type === 'mousemove') {
-                // マウス移動による慣性
-                const tx = e.data.x * 25;
-                const ty = e.data.y * 15;
-                mv.style.transform = `translate(${tx}px, ${ty}px) rotate(${e.data.x * 5}deg)`;
-            }
-            if (e.data.type === 'action' && e.data.key === 'KeyR') {
-                // リロード用のアニメーションに切り替え
-                // ※モデル内のアニメーション名を確認してください
-                mv.animationName = "Reload"; 
-                setTimeout(() => { mv.animationName = "Idle"; }, 1000);
+            if (e.data.type === 'adjust') {
+                // 位置の調整
+                wrapper.style.right = e.data.x + 'px';
+                wrapper.style.bottom = e.data.y + 'px';
+                // サイズの調整
+                const s = e.data.scale;
+                mv.setAttribute('scale', `${s} ${s} ${s}`);
             }
         });
     </script>
-    <script>
-    window.addEventListener('message', (e) => {
-        const mv = document.querySelector('model-viewer');
-        
-        if (e.data.type === 'adjust') {
-            // モデル自体の大きさを変更
-            mv.setAttribute('scale', `${e.data.scale} ${e.data.scale} ${e.data.scale}`);
-        }
-        
-        // 前回のマウス移動処理などはここに残しておく
-    });
-</script>
 </body>
 </html>
