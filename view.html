@@ -3,24 +3,26 @@
 <head>
     <meta charset="UTF-8">
     <title>Weapon Viewer</title>
+    <!-- Model Viewerの読み込み -->
     <script type="module" src="https://ajax.googleapis.com/ajax/libs/model-viewer/3.3.0/model-viewer.min.js"></script>
     <style>
+        /* 背景を透明にするための強力な設定 */
         html, body {
-            margin: 0; padding: 0;
-            width: 100%; height: 100%;
-            background-color: transparent !important;
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            background-color: transparent !important; /* 重要 */
+            background: rgba(0,0,0,0) !important;
             overflow: hidden;
-            /* 編集モード時の右クリックメニュー禁止 */
-            user-select: none;
+            user-select: none; /* テキスト選択禁止 */
         }
 
         #wrapper {
             position: absolute;
             top: 0; left: 0;
             width: 100%; height: 100%;
-            /* 初期位置を真ん中ではなく、扱いやすい位置に */
             transform-origin: center center;
-            /* 編集時は即時反映させたいのでtransitionはJS側で制御 */
         }
 
         model-viewer {
@@ -28,98 +30,112 @@
             background-color: transparent;
             --poster-color: transparent;
         }
+
+        /* エラー表示用のスタイル */
+        #error-msg {
+            position: absolute;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            color: red;
+            background: rgba(0,0,0,0.7);
+            padding: 20px;
+            display: none; /* 通常は非表示 */
+            font-family: sans-serif;
+            pointer-events: none;
+        }
     </style>
 </head>
-<!-- 右クリックメニューを出さないようにする -->
 <body oncontextmenu="return false;">
 
     <div id="wrapper">
+        <!-- 
+           src="./knife.glb" が正しいファイル名か確認してください。
+           shadow-intensity="0" で影を完全に消しています。
+        -->
         <model-viewer
             id="knife"
-            src="./knife.glb" 
+            src="melee_156.glb" 
             disable-zoom
             disable-tap
             interaction-prompt="none"
-            /* 影を消す設定 */
             shadow-intensity="0"
             autoplay
         ></model-viewer>
     </div>
 
+    <!-- エラー時に表示されるメッセージ -->
+    <div id="error-msg">
+        <h3>エラー: モデルが表示されません</h3>
+        <p>1. フォルダに "knife.glb" はありますか？</p>
+        <p>2. "Live Server" 等を使ってhttpから始まるURLで開いていますか？<br>(file://... だと動きません)</p>
+    </div>
+
     <script>
         const wrapper = document.getElementById('wrapper');
         const modelViewer = document.getElementById('knife');
+        const errorMsg = document.getElementById('error-msg');
 
-        // === 状態管理変数 ===
-        // ユーザーが決めた固定位置・角度・ズーム
-        let config = {
-            posX: 0,      // 画面上のX位置
-            posY: 0,      // 画面上のY位置
-            orbitX: -30,  // カメラの水平角度 (deg)
-            orbitY: 80,   // カメラの垂直角度 (deg)
-            distance: 2.5 // カメラの距離 (m)
-        };
+        // エラー検知
+        modelViewer.addEventListener('error', (e) => {
+            console.error("モデル読み込みエラー:", e);
+            errorMsg.style.display = 'block';
+        });
 
-        // ゲーム側から送られてくる揺れデータ
+        // 状態変数
+        let config = { posX: 0, posY: 0, orbitX: -30, orbitY: 80, distance: 2.5 };
         let sway = { x: 0, y: 0, rotX: 0, rotY: 0 };
-
-        // 編集モードかどうか
         let isEditMode = false;
         
-        // マウス操作用の一時変数
+        // ドラッグ処理用
         let isDraggingLeft = false;
         let isDraggingRight = false;
         let lastMouseX = 0;
         let lastMouseY = 0;
 
-        // 初期設定の適用
+        // 初期描画
         updateCamera();
         updateTransform();
 
-        // === Voxiomからのメッセージ受信 ===
+        // メッセージ受信
         window.addEventListener('message', (event) => {
             const data = event.data;
 
-            // モード切替
             if (data.type === 'set-mode') {
                 isEditMode = data.enabled;
+                // 編集モードならカーソルを出す
                 document.body.style.cursor = isEditMode ? 'move' : 'default';
             }
 
-            // 揺れデータの更新 (編集モード中は揺れを止めて調整しやすくする)
             if (data.type === 'update-transform') {
                 if (!isEditMode) {
-                    sway.x = data.x;
-                    sway.y = data.y;
-                    sway.rotX = data.rotateX;
-                    sway.rotY = data.rotateY;
+                    sway.x = data.x; sway.y = data.y;
+                    sway.rotX = data.rotateX; sway.rotY = data.rotateY;
                 } else {
-                    // 編集モード中は揺れをリセット
                     sway = { x: 0, y: 0, rotX: 0, rotY: 0 };
                 }
                 updateTransform();
             }
 
-            // アニメーション再生
             if (data.type === 'play-animation') {
                 const animName = data.name;
-                const foundAnim = modelViewer.availableAnimations.find(a => a.toLowerCase().includes(animName.toLowerCase()));
-                if (foundAnim) {
-                    modelViewer.animationName = foundAnim;
-                    modelViewer.currentTime = 0;
-                    modelViewer.play();
+                if(modelViewer.availableAnimations){
+                    const foundAnim = modelViewer.availableAnimations.find(a => a.toLowerCase().includes(animName.toLowerCase()));
+                    if (foundAnim) {
+                        modelViewer.animationName = foundAnim;
+                        modelViewer.currentTime = 0;
+                        modelViewer.play();
+                    }
                 }
             }
         });
 
-        // === 編集操作 (マウスイベント) ===
+        // マウス操作 (編集モード)
         window.addEventListener('mousedown', (e) => {
             if (!isEditMode) return;
             lastMouseX = e.clientX;
             lastMouseY = e.clientY;
-            
-            if (e.button === 0) isDraggingLeft = true;  // 左クリック
-            if (e.button === 2) isDraggingRight = true; // 右クリック
+            if (e.button === 0) isDraggingLeft = true;
+            if (e.button === 2) isDraggingRight = true;
         });
 
         window.addEventListener('mouseup', () => {
@@ -129,48 +145,36 @@
 
         window.addEventListener('mousemove', (e) => {
             if (!isEditMode) return;
-            
             const deltaX = e.clientX - lastMouseX;
             const deltaY = e.clientY - lastMouseY;
             lastMouseX = e.clientX;
             lastMouseY = e.clientY;
 
-            // 左ドラッグ：位置調整 (Position)
             if (isDraggingLeft) {
                 config.posX += deltaX;
                 config.posY += deltaY;
                 updateTransform();
             }
-
-            // 右ドラッグ：向き調整 (Rotation / Camera Orbit)
             if (isDraggingRight) {
-                config.orbitX -= deltaX * 0.5; // 感度調整
+                config.orbitX -= deltaX * 0.5;
                 config.orbitY -= deltaY * 0.5;
-                // 角度制限 (上下の反転防止など)
-                config.orbitY = Math.max(10, Math.min(170, config.orbitY)); 
+                config.orbitY = Math.max(1, Math.min(179, config.orbitY));
                 updateCamera();
             }
         });
 
-        // ホイール：拡大縮小 (Zoom)
         window.addEventListener('wheel', (e) => {
             if (!isEditMode) return;
-            // スクロール量に応じて距離を変更
             config.distance += e.deltaY * 0.005;
-            config.distance = Math.max(0.5, Math.min(10, config.distance)); // 制限
+            config.distance = Math.max(0.1, Math.min(20, config.distance));
             updateCamera();
-        });
-
-        // === 描画更新関数 ===
+        }, { passive: false });
 
         function updateCamera() {
-            // model-viewerのカメラ位置を更新
             modelViewer.cameraOrbit = `${config.orbitX}deg ${config.orbitY}deg ${config.distance}m`;
         }
 
         function updateTransform() {
-            // CSS Transformで位置と揺れを適用
-            // 「設定した固定位置(config)」に「ゲームの揺れ(sway)」を足す
             wrapper.style.transform = `
                 translate3d(${config.posX + sway.x}px, ${config.posY + sway.y}px, 0)
                 rotateY(${sway.rotY}deg)
