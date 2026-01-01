@@ -4,34 +4,20 @@
   <meta charset="UTF-8">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/TransformControls.js"></script>
-  <style>
-    body { margin: 0; overflow: hidden; background: transparent !important; }
-    #coord_display {
-      position: fixed; bottom: 20px; right: 20px;
-      background: rgba(0, 0, 0, 0.85); color: #00ff00;
-      padding: 15px; font-family: 'Consolas', monospace; font-size: 11px;
-      border: 1px solid #00ff00; border-radius: 8px;
-      display: none; pointer-events: auto; cursor: pointer;
-      z-index: 10000; box-shadow: 0 0 10px rgba(0,255,0,0.3);
-    }
-    #coord_display:hover { background: rgba(0, 40, 0, 0.9); }
-    #coord_display::before { content: "【CLICK TO COPY CODE】"; display: block; font-weight: bold; margin-bottom: 5px; color: #fff; }
-  </style>
+  <style>body { margin: 0; overflow: hidden; background: transparent !important; }</style>
 </head>
 <body>
-  <div id="coord_display"></div>
   <script>
     const MODEL_URL = "melee_156.glb";
-    let scene, camera, renderer, model, mixer, control, wrapper;
+    let scene, camera, renderer, model, mixer, wrapper;
     let idleAction, inspectAction;
     let isInspecting = false;
     const clock = new THREE.Clock();
 
-    // ★ここの数値を後で書き換えることで固定化されます
-    let basePos = new THREE.Vector3(1.5, -1.5, -3); 
-    let baseRot = new THREE.Euler(0, -Math.PI/2, 0);
-    let baseScale = new THREE.Vector3(1, 1, 1);
+    // ★ご指定の座標で固定
+    const basePos = new THREE.Vector3(3.411, -3.014, -3.000); 
+    const baseRot = new THREE.Euler(2.170, 0.357, -1.298);
+    const baseScale = new THREE.Vector3(2.509, 2.509, 2.509);
 
     let offsetPos = new THREE.Vector3(), offsetRot = new THREE.Euler();
 
@@ -56,16 +42,8 @@
       wrapper.scale.copy(baseScale);
       scene.add(wrapper);
 
-      control = new THREE.TransformControls(camera, renderer.domElement);
-      // ギズモ操作中にモデルが動かないようイベント設定
-      control.addEventListener('dragging-changed', (e) => {
-        if (!e.value) updateDisplay(); 
-      });
-      scene.add(control);
-
       loadModel(MODEL_URL);
       animate();
-      window.parent.postMessage({ type: 'VIEWER_READY' }, "*");
     }
 
     function loadModel(url) {
@@ -77,10 +55,12 @@
           idleAction = mixer.clipAction(gltf.animations[0]);
           idleAction.setEffectiveTimeScale(0.4);
           idleAction.play();
+          
           const inspectClip = gltf.animations[1] || gltf.animations[0];
           inspectAction = mixer.clipAction(inspectClip);
           inspectAction.setLoop(THREE.LoopOnce);
           inspectAction.clampWhenFinished = true;
+
           mixer.addEventListener('finished', (e) => {
             if (e.action === inspectAction) {
               inspectAction.fadeOut(0.5);
@@ -92,57 +72,16 @@
       });
     }
 
-    function updateDisplay() {
-      const p = wrapper.position;
-      const r = wrapper.rotation;
-      const s = wrapper.scale;
-      
-      const code = `basePos.set(${p.x.toFixed(3)}, ${p.y.toFixed(3)}, ${p.z.toFixed(3)});\n` +
-                   `baseRot.set(${r.x.toFixed(3)}, ${r.y.toFixed(3)}, ${r.z.toFixed(3)});\n` +
-                   `baseScale.set(${s.x.toFixed(3)}, ${s.y.toFixed(3)}, ${s.z.toFixed(3)});`;
-      
-      const el = document.getElementById('coord_display');
-      el.innerText = code;
-      
-      // 親（スクリプト）にもデータを送信
-      window.parent.postMessage({
-        type: 'SAVE_DATA',
-        pos: {x: p.x, y: p.y, z: p.z},
-        rot: {x: r.x, y: r.y, z: r.z},
-        s: {x: s.x, y: s.y, z: s.z}
-      }, "*");
-    }
-
-    document.getElementById('coord_display').onclick = function() {
-      navigator.clipboard.writeText(this.innerText);
-      alert("座標コードをコピーしました！");
-    };
-
     window.addEventListener('message', (e) => {
       const d = e.data;
-      if (d.type === 'mode') control.setMode(d.mode);
-      if (d.type === 'visibility') {
-        control.enabled = d.show;
-        control.visible = d.show;
-        document.getElementById('coord_display').style.display = d.show ? "block" : "none";
-        if (d.show) control.attach(wrapper);
-        else control.detach();
-      }
-      if (d.type === 'REQUEST_SAVE') updateDisplay();
-      if (d.type === 'APPLY_DATA') {
-        wrapper.position.set(d.pos.x, d.pos.y, d.pos.z);
-        wrapper.rotation.set(d.rot.x, d.rot.y, d.rot.z);
-        wrapper.scale.set(d.s.x, d.s.y, d.s.z);
-        basePos.copy(wrapper.position);
-        baseRot.copy(wrapper.rotation);
-        baseScale.copy(wrapper.scale);
-      }
-      if (d.type === 'play_animation' && !isInspecting && !control.enabled) {
+      // インスペクト命令
+      if (d.type === 'play_animation' && !isInspecting) {
         isInspecting = true;
         idleAction?.fadeOut(0.2);
         inspectAction?.reset().fadeIn(0.2).play();
       }
-      if (d.type === 'mouse_move' && !control.enabled) {
+      // マウス追従用
+      if (d.type === 'mouse_move') {
         offsetRot.y -= d.mx * 0.0004; offsetRot.x -= d.my * 0.0004;
         offsetPos.x -= d.mx * 0.00015; offsetPos.y += d.my * 0.00015;
       }
@@ -152,17 +91,19 @@
       requestAnimationFrame(animate);
       const delta = clock.getDelta();
       if (mixer) mixer.update(delta);
-      if (wrapper && !control.enabled) {
-        const t = performance.now() * 0.001;
-        offsetRot.x *= Math.pow(0.9, delta * 60);
-        offsetRot.y *= Math.pow(0.9, delta * 60);
-        offsetPos.x *= Math.pow(0.85, delta * 60);
-        offsetPos.y *= Math.pow(0.85, delta * 60);
-        const breatheY = Math.sin(t * 1.5) * 0.015;
-        const s = isInspecting ? 0.15 : 1.0; 
-        wrapper.position.set(basePos.x + offsetPos.x * s, basePos.y + (offsetPos.y + breatheY) * s, basePos.z);
-        wrapper.rotation.set(baseRot.x + offsetRot.x * s, baseRot.y + offsetRot.y * s, baseRot.z + (offsetRot.y * 0.5 * s));
-      }
+      
+      const t = performance.now() * 0.001;
+      offsetRot.x *= Math.pow(0.9, delta * 60);
+      offsetRot.y *= Math.pow(0.9, delta * 60);
+      offsetPos.x *= Math.pow(0.85, delta * 60);
+      offsetPos.y *= Math.pow(0.85, delta * 60);
+      
+      const breatheY = Math.sin(t * 1.5) * 0.015;
+      const s = isInspecting ? 0.15 : 1.0; 
+      
+      wrapper.position.set(basePos.x + offsetPos.x * s, basePos.y + (offsetPos.y + breatheY) * s, basePos.z);
+      wrapper.rotation.set(baseRot.x + offsetRot.x * s, baseRot.y + offsetRot.y * s, baseRot.z + (offsetRot.y * 0.5 * s));
+      
       renderer.render(scene, camera);
     }
     init();
