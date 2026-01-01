@@ -16,7 +16,6 @@
         let isInspecting = false;
         const clock = new THREE.Clock();
 
-        // 座標の基準値
         let basePos = new THREE.Vector3(1.5, -1.5, -3); 
         let baseRot = new THREE.Euler(0, -Math.PI/2, 0);
         let baseScale = new THREE.Vector3(1, 1, 1);
@@ -48,8 +47,6 @@
 
             loadModel(MODEL_URL);
             animate();
-
-            // 親に準備完了を通知
             window.parent.postMessage({ type: 'VIEWER_READY' }, "*");
         }
 
@@ -58,18 +55,15 @@
                 model = gltf.scene;
                 wrapper.add(model);
                 control.attach(wrapper);
-
                 if (gltf.animations.length > 0) {
                     mixer = new THREE.AnimationMixer(model);
                     idleAction = mixer.clipAction(gltf.animations[0]);
                     idleAction.setEffectiveTimeScale(0.4);
                     idleAction.play();
-
                     const inspectClip = gltf.animations[1] || gltf.animations[0];
                     inspectAction = mixer.clipAction(inspectClip);
                     inspectAction.setLoop(THREE.LoopOnce);
                     inspectAction.clampWhenFinished = true;
-
                     mixer.addEventListener('finished', (e) => {
                         if (e.action === inspectAction) {
                             inspectAction.fadeOut(0.5);
@@ -81,6 +75,21 @@
             });
         }
 
+        // データを親に送る共通関数
+        function sendCurrentData() {
+            // 現在のwrapper(箱)の値を基準値として更新してから送る
+            basePos.copy(wrapper.position);
+            baseRot.copy(wrapper.rotation);
+            baseScale.copy(wrapper.scale);
+
+            window.parent.postMessage({
+                type: 'SAVE_DATA',
+                pos: {x: basePos.x, y: basePos.y, z: basePos.z},
+                rot: {x: baseRot.x, y: baseRot.y, z: baseRot.z},
+                s: {x: baseScale.x, y: baseScale.y, z: baseScale.z}
+            }, "*");
+        }
+
         window.addEventListener('message', (e) => {
             const d = e.data;
             if (d.type === 'mode') control.setMode(d.mode);
@@ -88,21 +97,12 @@
             if (d.type === 'visibility') {
                 control.enabled = d.show;
                 control.visible = d.show;
-                if (!d.show) {
-                    basePos.copy(wrapper.position);
-                    baseRot.copy(wrapper.rotation);
-                    baseScale.copy(wrapper.scale);
-                    // 保存命令を親に送る
-                    window.parent.postMessage({
-                        type: 'SAVE_DATA',
-                        pos: {x: basePos.x, y: basePos.y, z: basePos.z},
-                        rot: {x: baseRot.x, y: baseRot.y, z: baseRot.z},
-                        s: {x: baseScale.x, y: baseScale.y, z: baseScale.z}
-                    }, "*");
-                }
+                if (!d.show) sendCurrentData(); // Edit OFF時も保存
             }
 
-            // 親から保存データを受け取って適用
+            // ★親からの「保存せよ(Lキー)」の命令
+            if (d.type === 'REQUEST_SAVE') sendCurrentData();
+
             if (d.type === 'APPLY_DATA') {
                 basePos.set(d.pos.x, d.pos.y, d.pos.z);
                 baseRot.set(d.rot.x, d.rot.y, d.rot.z);
@@ -112,7 +112,6 @@
                 wrapper.scale.copy(baseScale);
             }
 
-            // ★インスペクト再生
             if (d.type === 'play_animation' && !isInspecting && !control.enabled) {
                 isInspecting = true;
                 idleAction.fadeOut(0.2);
@@ -120,10 +119,8 @@
             }
 
             if (d.type === 'mouse_move' && !control.enabled) {
-                offsetRot.y -= d.mx * 0.0004;
-                offsetRot.x -= d.my * 0.0004;
-                offsetPos.x -= d.mx * 0.00015;
-                offsetPos.y += d.my * 0.00015;
+                offsetRot.y -= d.mx * 0.0004; offsetRot.x -= d.my * 0.0004;
+                offsetPos.x -= d.mx * 0.00015; offsetPos.y += d.my * 0.00015;
             }
         });
 
@@ -131,31 +128,20 @@
             requestAnimationFrame(animate);
             const delta = clock.getDelta();
             const time = performance.now() * 0.001;
-
             if (mixer) mixer.update(delta);
-
             if (wrapper && !control.enabled) {
                 offsetRot.x *= Math.pow(0.9, delta * 60);
                 offsetRot.y *= Math.pow(0.9, delta * 60);
                 offsetPos.x *= Math.pow(0.85, delta * 60);
                 offsetPos.y *= Math.pow(0.85, delta * 60);
-
                 const breatheY = Math.sin(time * 1.5) * 0.015;
                 const swayStr = isInspecting ? 0.15 : 1.0; 
-
                 wrapper.position.set(basePos.x + offsetPos.x * swayStr, basePos.y + (offsetPos.y + breatheY) * swayStr, basePos.z);
                 wrapper.rotation.set(baseRot.x + offsetRot.x * swayStr, baseRot.y + offsetRot.y * swayStr, baseRot.z + (offsetRot.y * 0.5 * swayStr));
                 wrapper.scale.copy(baseScale);
             }
-
             renderer.render(scene, camera);
         }
-
-        window.onresize = () => {
-            camera.aspect = window.innerWidth / window.innerHeight;
-            camera.updateProjectionMatrix();
-            renderer.setSize(window.innerWidth, window.innerHeight);
-        };
         init();
     </script>
 </body>
