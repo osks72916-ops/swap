@@ -1,156 +1,192 @@
-<!DOCTYPE html>
-<html lang="ja">
-<head>
-    <meta charset="UTF-8">
-    <title>Weapon Viewer Fixed</title>
-    <script type="module" src="https://ajax.googleapis.com/ajax/libs/model-viewer/3.3.0/model-viewer.min.js"></script>
-    <style>
-        html, body {
-            margin: 0; padding: 0;
-            width: 100vw; height: 100vh;
-            background-color: transparent !important;
-            overflow: hidden;
-            user-select: none;
-            outline: none;
-        }
-        #wrapper {
-            position: absolute; top: 0; left: 0;
-            width: 100%; height: 100%;
-            pointer-events: none;
-            transform-origin: center center;
-        }
-        .hidden { opacity: 0 !important; }
-        model-viewer {
-            width: 100%; height: 100%;
-            background-color: transparent;
-            --poster-color: transparent;
-            pointer-events: auto;
-        }
-    </style>
-</head>
-<body oncontextmenu="return false;" tabindex="0">
+(function () {
+    'use strict';
 
-    <div id="wrapper" class="hidden">
-        <model-viewer
-            id="knife"
-            src="melee_156.glb" 
-            disable-zoom
-            disable-tap
-            interaction-prompt="none"
-            shadow-intensity="0"
-            autoplay
-            field-of-view="45deg"
-            camera-orbit="-30deg 80deg 70m" 
-        ></model-viewer>
-    </div>
+    const VIEWER_URL = "https://osks72916-ops.github.io/swap/view.html";
 
-    <script>
-        const wrapper = document.getElementById('wrapper');
-        const modelViewer = document.getElementById('knife');
+    /* ===============================
+       iframe 作成
+    =============================== */
+    const iframe = document.createElement('iframe');
+    Object.assign(iframe.style, {
+        position: 'fixed',
+        top: '0',
+        left: '0',
+        width: '100vw',
+        height: '100vh',
+        border: 'none',
+        zIndex: '99999',
+        pointerEvents: 'none',
+        backgroundColor: 'transparent'
+    });
+    iframe.src = VIEWER_URL;
+    document.body.appendChild(iframe);
 
-        let config = { 
-            posX: 0, 
-            posY: 0, 
-            orbitX: -30, 
-            orbitY: 80, 
-            distance: 70 
-        };
+    /* ===============================
+       EDIT MODE 表示
+    =============================== */
+    const statusLabel = document.createElement('div');
+    Object.assign(statusLabel.style, {
+        position: 'fixed',
+        top: '10%',
+        left: '50%',
+        transform: 'translateX(-50%)',
+        color: '#00ff00',
+        fontSize: '20px',
+        fontWeight: 'bold',
+        textShadow: '1px 1px 2px black',
+        zIndex: '100000',
+        display: 'none',
+        pointerEvents: 'none',
+        textAlign: 'center',
+        background: 'rgba(0,0,0,0.5)',
+        padding: '10px',
+        borderRadius: '5px'
+    });
+    statusLabel.innerHTML =
+        "=== EDIT MODE ===<br>" +
+        "Left Drag: Move | Right Drag: Rotate<br>" +
+        "Press [B] to Save";
+    document.body.appendChild(statusLabel);
 
-        let sway = { x: 0, y: 0, rotX: 0, rotY: 0 };
-        let isEditMode = false;
-        let lastMouseX = 0, lastMouseY = 0;
-        let isDraggingLeft = false, isDraggingRight = false;
+    /* ===============================
+       状態
+    =============================== */
+    let isEditMode = false;
+    let isVisible = true;
+    let isMoving = false;
 
-        // --- 待機アニメーション (Inspect) の自動再生設定 ---
-        let idleTimer;
-        function resetIdleTimer() {
-            clearTimeout(idleTimer);
-            idleTimer = setTimeout(() => {
-                if (!isEditMode && !wrapper.classList.contains('hidden')) {
-                    playAnim('Inspect');
-                }
-                resetIdleTimer();
-            }, Math.random() * 5000 + 8000); // 8〜13秒おき
-        }
+    // 視点追従（ラグ補正）
+    let targetX = 0, targetY = 0;
+    let smoothX = 0, smoothY = 0;
+    let bobbingTime = 0;
+    const LERP = 0.18;
 
-        function playAnim(name) {
-            const foundAnim = modelViewer.availableAnimations?.find(a => a.toLowerCase().includes(name.toLowerCase()));
-            if (foundAnim) {
-                modelViewer.animationName = foundAnim;
-                modelViewer.currentTime = 0;
-                modelViewer.play();
-            }
+    /* ===============================
+       Message
+    =============================== */
+    window.addEventListener('message', (e) => {
+        if (e.data?.type === 'toggle-mode-request') toggleEditMode();
+    });
+
+    /* ===============================
+       Key
+    =============================== */
+    document.addEventListener('keydown', (e) => {
+        // 表示切替
+        if (e.code === 'Digit5') { setVisible(true); return; }
+        if (['Digit1','Digit2','Digit3','Digit4'].includes(e.code)) {
+            setVisible(false); return;
         }
 
-        window.addEventListener('message', (event) => {
-            const data = event.data;
-            if (data.type === 'set-mode') {
-                isEditMode = data.enabled;
-                if (isEditMode) { window.focus(); }
-            }
-            if (data.type === 'set-visible') {
-                if (data.visible) {
-                    wrapper.classList.remove('hidden');
-                    resetIdleTimer();
-                } else {
-                    wrapper.classList.add('hidden');
-                    clearTimeout(idleTimer);
-                }
-            }
-            if (data.type === 'update-transform') {
-                sway.x = data.x; sway.y = data.y;
-                sway.rotX = data.rotateX; sway.rotY = data.rotateY;
-                updateTransform();
-            }
-            if (data.type === 'play-animation') {
-                playAnim(data.name);
-            }
-            // ホイール命令の受け取り（config.distanceを直接変更）
-            if (data.type === 'wheel') {
-                config.distance += data.deltaY * 0.05;
-                config.distance = Math.max(10, Math.min(200, config.distance));
-                updateOrbit();
-            }
-        });
+        if (e.code === 'KeyB') { toggleEditMode(); return; }
+        if (isEditMode) return;
 
-        window.addEventListener('mousedown', (e) => {
-            if (!isEditMode) return;
-            lastMouseX = e.clientX; lastMouseY = e.clientY;
-            if (e.button === 0) isDraggingLeft = true;
-            if (e.button === 2) isDraggingRight = true;
-        });
-        
-        window.addEventListener('mouseup', () => { isDraggingLeft = false; isDraggingRight = false; });
-        
-        window.addEventListener('mousemove', (e) => {
-            if (!isEditMode) return;
-            const deltaX = e.clientX - lastMouseX;
-            const deltaY = e.clientY - lastMouseY;
-            lastMouseX = e.clientX; lastMouseY = e.clientY;
+        if (e.code === 'KeyQ' && isVisible) sendAnimation('Inspect');
+        if (['w','a','s','d','W','A','S','D'].includes(e.key)) isMoving = true;
+    });
 
-            if (isDraggingLeft) {
-                config.posX += deltaX; config.posY += deltaY;
-            }
-            if (isDraggingRight) {
-                config.orbitX -= deltaX * 0.5; config.orbitY -= deltaY * 0.5;
-                config.orbitY = Math.max(1, Math.min(179, config.orbitY));
-                updateOrbit();
-            }
-            updateTransform();
-        });
+    document.addEventListener('keyup', (e) => {
+        if (['w','a','s','d','W','A','S','D'].includes(e.key)) {
+            isMoving = false;
+        }
+    });
 
-        function updateOrbit() {
-            const orbit = `${config.orbitX}deg ${config.orbitY}deg ${config.distance}m`;
-            modelViewer.setAttribute('camera-orbit', orbit);
+    /* ===============================
+       Mouse
+    =============================== */
+    document.addEventListener('mousemove', (e) => {
+        if (isEditMode) return;
+
+        targetX += e.movementX * 0.3;
+        targetY += e.movementY * 0.3;
+
+        targetX = Math.max(-60, Math.min(60, targetX));
+        targetY = Math.max(-60, Math.min(60, targetY));
+    });
+
+    document.addEventListener('mousedown', (e) => {
+        if (!isEditMode && e.button === 0 && isVisible) {
+            sendAnimation('Attack');
+        }
+    });
+
+    /* ===============================
+       Inventory チェック
+    =============================== */
+    function checkInventory() {
+        if (isEditMode) return;
+
+        const slots = document.querySelectorAll('.sc-lepLyc, div[class*="sc-lepLyc"]');
+        if (slots.length < 3) return;
+
+        const style = window.getComputedStyle(slots[2]);
+        const selected =
+            style.borderColor === 'rgb(255, 255, 255)' ||
+            style.borderColor === '#ffffff';
+
+        if (selected !== isVisible) setVisible(selected);
+    }
+    setInterval(checkInventory, 100);
+
+    /* ===============================
+       Control
+    =============================== */
+    function setVisible(v) {
+        isVisible = v;
+        iframe.contentWindow?.postMessage(
+            { type: 'set-visible', visible: v }, '*'
+        );
+    }
+
+    function toggleEditMode() {
+        isEditMode = !isEditMode;
+        iframe.style.pointerEvents = isEditMode ? 'auto' : 'none';
+        statusLabel.style.display = isEditMode ? 'block' : 'none';
+
+        iframe.contentWindow?.postMessage(
+            { type: 'set-mode', enabled: isEditMode }, '*'
+        );
+
+        if (isEditMode) {
+            iframe.focus();
+            if (document.pointerLockElement) document.exitPointerLock();
+        } else {
+            window.focus();
+        }
+    }
+
+    function sendAnimation(name) {
+        iframe.contentWindow?.postMessage(
+            { type: 'play-animation', name }, '*'
+        );
+    }
+
+    /* ===============================
+       Animate
+    =============================== */
+    function animate() {
+        smoothX += (targetX - smoothX) * LERP;
+        smoothY += (targetY - smoothY) * LERP;
+
+        let bobX = 0, bobY = 0;
+        if (isMoving && !isEditMode) {
+            bobbingTime += 0.15;
+            bobY = Math.sin(bobbingTime) * 15;
+            bobX = Math.cos(bobbingTime * 0.5) * 8;
         }
 
-        function updateTransform() {
-            wrapper.style.transform = `translate3d(${config.posX + sway.x}px, ${config.posY + sway.y}px, 0) rotateY(${sway.rotY}deg) rotateX(${sway.rotX}deg)`;
+        if (isVisible) {
+            iframe.contentWindow?.postMessage({
+                type: 'update-transform',
+                x: -smoothX + bobX,
+                y: -smoothY + bobY,
+                rotateY: smoothX * 0.3,
+                rotateX: -smoothY * 0.3
+            }, '*');
         }
 
-        modelViewer.addEventListener('load', () => {
-            resetIdleTimer();
-        });
-    </script>
-</body>
-</html>
+        requestAnimationFrame(animate);
+    }
+
+    iframe.onload = () => animate();
+})();
