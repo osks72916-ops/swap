@@ -1,196 +1,120 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-<meta charset="UTF-8">
-<title>Weapon Viewer Fixed</title>
-
-<script type="module"
-  src="https://ajax.googleapis.com/ajax/libs/model-viewer/3.3.0/model-viewer.min.js">
-</script>
-
-<style>
-html, body {
-    margin: 0;
-    width: 100vw;
-    height: 100vh;
-    background: transparent !important;
-    overflow: hidden;
-    user-select: none;
-}
-
-#wrapper {
-    position: absolute;
-    inset: 0;
-    pointer-events: none;
-    transform-origin: center center;
-}
-
-.hidden {
-    opacity: 0 !important;
-}
-
-model-viewer {
-    width: 100%;
-    height: 100%;
-    background: transparent;
-    --poster-color: transparent;
-    pointer-events: auto;
-}
-
-/* 左上 m 完全削除 */
-model-viewer::part(interaction-prompt) {
-    display: none !important;
-}
-</style>
+    <meta charset="UTF-8">
+    <title>Weapon Viewer Fixed</title>
+    <script type="module" src="https://ajax.googleapis.com/ajax/libs/model-viewer/3.3.0/model-viewer.min.js"></script>
+    <style>
+        html, body {
+            margin: 0; padding: 0;
+            width: 100vw; height: 100vh;
+            background-color: transparent !important;
+            overflow: hidden;
+            user-select: none;
+            outline: none;
+        }
+        #wrapper {
+            position: absolute; top: 0; left: 0;
+            width: 100%; height: 100%;
+            pointer-events: none;
+            transform-origin: center center;
+        }
+        .hidden { opacity: 0 !important; }
+        model-viewer {
+            width: 100%; height: 100%;
+            background-color: transparent;
+            --poster-color: transparent;
+            pointer-events: auto;
+        }
+        /* デバッグ表示を完全に削除しました */
+    </style>
 </head>
-
 <body oncontextmenu="return false;" tabindex="0">
 
-<div id="wrapper">
-    <model-viewer
-        id="knife"
-        src="melee_156.glb"
-        interaction-prompt="none"
-        interaction-prompt-threshold="0"
-        disable-zoom
-        disable-tap
-        shadow-intensity="0"
-        field-of-view="45deg"
-        camera-orbit="-30deg 80deg 70m">
-    </model-viewer>
-</div>
+    <div id="wrapper">
+        <model-viewer
+            id="knife"
+            src="melee_156.glb" 
+            disable-zoom
+            disable-tap
+            interaction-prompt="none"
+            shadow-intensity="0"
+            autoplay
+            field-of-view="45deg"
+            camera-orbit="-30deg 80deg 70m" 
+        ></model-viewer>
+    </div>
 
-<script>
-const wrapper = document.getElementById('wrapper');
-const modelViewer = document.getElementById('knife');
+    <script>
+        const wrapper = document.getElementById('wrapper');
+        const modelViewer = document.getElementById('knife');
 
-let config = {
-    posX: 0,
-    posY: 0,
-    orbitX: -30,
-    orbitY: 80,
-    distance: 70
-};
+        let config = { 
+            posX: 0, 
+            posY: 0, 
+            orbitX: -30, 
+            orbitY: 80, 
+            distance: 70  // 70mで固定
+        };
 
-let sway = { x: 0, y: 0, rotX: 0, rotY: 0 };
-let isEditMode = false;
-let lastX = 0, lastY = 0;
-let dragL = false, dragR = false;
-let idleTimer = null;
+        let sway = { x: 0, y: 0, rotX: 0, rotY: 0 };
+        let isEditMode = false;
+        let lastMouseX = 0, lastMouseY = 0;
+        let isDraggingLeft = false, isDraggingRight = false;
 
-/* ===============================
-   Message
-=============================== */
-window.addEventListener('message', (e) => {
-    const d = e.data;
-    if (d.type === 'set-mode') isEditMode = d.enabled;
+        window.addEventListener('message', (event) => {
+            const data = event.data;
+            if (data.type === 'set-mode') {
+                isEditMode = data.enabled;
+                if (isEditMode) { window.focus(); }
+            }
+            if (data.type === 'set-visible') {
+                if (data.visible) wrapper.classList.remove('hidden');
+                else wrapper.classList.add('hidden');
+            }
+            if (data.type === 'update-transform') {
+                sway.x = data.x; sway.y = data.y;
+                sway.rotX = data.rotateX; sway.rotY = data.rotateY;
+                updateTransform();
+            }
+            if (data.type === 'play-animation') {
+                const foundAnim = modelViewer.availableAnimations?.find(a => a.toLowerCase().includes(data.name.toLowerCase()));
+                if (foundAnim) {
+                    modelViewer.animationName = foundAnim;
+                    modelViewer.currentTime = 0;
+                    modelViewer.play();
+                }
+            }
+        });
 
-    if (d.type === 'set-visible') {
-        wrapper.classList.toggle('hidden', !d.visible);
-    }
+        window.addEventListener('mousedown', (e) => {
+            if (!isEditMode) return;
+            lastMouseX = e.clientX; lastMouseY = e.clientY;
+            if (e.button === 0) isDraggingLeft = true;
+            if (e.button === 2) isDraggingRight = true;
+        });
+        window.addEventListener('mouseup', () => { isDraggingLeft = false; isDraggingRight = false; });
+        window.addEventListener('mousemove', (e) => {
+            if (!isEditMode) return;
+            const deltaX = e.clientX - lastMouseX;
+            const deltaY = e.clientY - lastMouseY;
+            lastMouseX = e.clientX; lastMouseY = e.clientY;
 
-    if (d.type === 'update-transform') {
-        sway.x = d.x;
-        sway.y = d.y;
-        sway.rotX = d.rotateX;
-        sway.rotY = d.rotateY;
-        updateTransform();
-    }
+            if (isDraggingLeft) {
+                config.posX += deltaX; config.posY += deltaY;
+            }
+            if (isDraggingRight) {
+                config.orbitX -= deltaX * 0.5; config.orbitY -= deltaY * 0.5;
+                config.orbitY = Math.max(1, Math.min(179, config.orbitY));
+                const orbit = `${config.orbitX}deg ${config.orbitY}deg ${config.distance}m`;
+                modelViewer.setAttribute('camera-orbit', orbit);
+            }
+            updateTransform();
+        });
 
-    if (d.type === 'play-animation') {
-        const anim = modelViewer.availableAnimations
-            ?.find(a => a.toLowerCase().includes(d.name.toLowerCase()));
-        if (anim) {
-            modelViewer.animationName = anim;
-            modelViewer.currentTime = 0;
-            modelViewer.play();
+        function updateTransform() {
+            wrapper.style.transform = `translate3d(${config.posX + sway.x}px, ${config.posY + sway.y}px, 0) rotateY(${sway.rotY}deg) rotateX(${sway.rotX}deg)`;
         }
-    }
-});
-
-/* ===============================
-   Edit 操作
-=============================== */
-window.addEventListener('mousedown', (e) => {
-    if (!isEditMode) return;
-    lastX = e.clientX;
-    lastY = e.clientY;
-    if (e.button === 0) dragL = true;
-    if (e.button === 2) dragR = true;
-});
-
-window.addEventListener('mouseup', () => {
-    dragL = false;
-    dragR = false;
-});
-
-window.addEventListener('mousemove', (e) => {
-    if (!isEditMode) return;
-
-    const dx = e.clientX - lastX;
-    const dy = e.clientY - lastY;
-    lastX = e.clientX;
-    lastY = e.clientY;
-
-    if (dragL) {
-        config.posX += dx;
-        config.posY += dy;
-    }
-
-    if (dragR) {
-        config.orbitX -= dx * 0.5;
-        config.orbitY -= dy * 0.5;
-        config.orbitY = Math.max(1, Math.min(179, config.orbitY));
-        modelViewer.setAttribute(
-            'camera-orbit',
-            `${config.orbitX}deg ${config.orbitY}deg ${config.distance}m`
-        );
-    }
-
-    updateTransform();
-});
-
-/* ===============================
-   Transform
-=============================== */
-function updateTransform() {
-    wrapper.style.transform =
-        `translate3d(${config.posX + sway.x}px, ${config.posY + sway.y}px, 0)
-         rotateY(${sway.rotY}deg)
-         rotateX(${sway.rotX}deg)`;
-}
-
-/* ===============================
-   Idle モーション（たまに）
-=============================== */
-function playRandomIdle() {
-    if (isEditMode) return;
-
-    const idles = modelViewer.availableAnimations
-        ?.filter(a => /idle|inspect/i.test(a)) || [];
-
-    if (!idles.length) return;
-
-    const anim = idles[Math.floor(Math.random() * idles.length)];
-    modelViewer.animationName = anim;
-    modelViewer.currentTime = 0;
-    modelViewer.play();
-
-    setTimeout(() => modelViewer.pause(), 1200);
-}
-
-function scheduleIdle() {
-    clearTimeout(idleTimer);
-    idleTimer = setTimeout(() => {
-        playRandomIdle();
-        scheduleIdle();
-    }, 4000 + Math.random() * 6000);
-}
-
-modelViewer.addEventListener('load', () => {
-    modelViewer.pause();
-    scheduleIdle();
-});
-</script>
+    </script>
 </body>
 </html>
