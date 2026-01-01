@@ -12,15 +12,14 @@
         const MODEL_URL = "melee_156.glb"; 
 
         let scene, camera, renderer, model, mixer, control, wrapper;
-        let idleAction, inspectAction;
-        let isInspecting = false;
+        let idleAction, inspectAction, isInspecting = false;
         const clock = new THREE.Clock();
 
         // 座標管理
-        let basePos = new THREE.Vector3(0, 0, 0);
-        let baseRot = new THREE.Euler(0, 0, 0);
+        let basePos = new THREE.Vector3(1.5, -1.5, -3); 
+        let baseRot = new THREE.Euler(0, -Math.PI/2, 0);
         let baseScale = new THREE.Vector3(1, 1, 1);
-        let offsetPosX = 0, offsetPosY = 0, offsetRotX = 0, offsetRotY = 0;
+        let offsetPos = new THREE.Vector3(), offsetRot = new THREE.Euler();
 
         function init() {
             scene = new THREE.Scene();
@@ -28,6 +27,7 @@
             camera.position.set(0, 0, 5);
 
             renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+            renderer.setPixelRatio(window.devicePixelRatio);
             renderer.setSize(window.innerWidth, window.innerHeight);
             renderer.setClearColor(0x000000, 0);
             document.body.appendChild(renderer.domElement);
@@ -37,39 +37,42 @@
             sun.position.set(5, 5, 5);
             scene.add(sun);
 
-            // ★重要：モデルを入れるための「透明な箱（グループ）」を作成
             wrapper = new THREE.Group();
+            wrapper.position.copy(basePos);
+            wrapper.rotation.copy(baseRot);
             scene.add(wrapper);
 
             control = new THREE.TransformControls(camera, renderer.domElement);
-            control.visible = false;
             scene.add(control);
-
-            // ★あなたはモデルではなく「箱」を操作する
-            control.attach(wrapper);
 
             loadModel(MODEL_URL);
             animate();
         }
 
         function loadModel(url) {
-            const loader = new THREE.GLTFLoader();
-            loader.load(url, (gltf) => {
+            new THREE.GLTFLoader().load(url, (gltf) => {
                 model = gltf.scene;
-                wrapper.add(model); // 箱の中にモデルを入れる
-
+                wrapper.add(model);
+                control.attach(wrapper);
                 if (gltf.animations.length > 0) {
                     mixer = new THREE.AnimationMixer(model);
                     idleAction = mixer.clipAction(gltf.animations[0]);
                     idleAction.setEffectiveTimeScale(0.4);
                     idleAction.play();
-
                     const inspectClip = gltf.animations[1] || gltf.animations[0];
                     inspectAction = mixer.clipAction(inspectClip);
                     inspectAction.setLoop(THREE.LoopOnce);
                     inspectAction.clampWhenFinished = true;
+                    mixer.addEventListener('finished', (e) => { if (e.action === inspectAction) stopInspect(); });
                 }
             });
+        }
+
+        function stopInspect() {
+            if (!inspectAction) return;
+            inspectAction.fadeOut(0.5);
+            idleAction.reset().fadeIn(0.5).play();
+            isInspecting = false;
         }
 
         window.addEventListener('message', (e) => {
@@ -79,30 +82,41 @@
             if (d.type === 'visibility') {
                 control.enabled = d.show;
                 control.visible = d.show;
-                // 編集モード終了時に、その時の「箱」の座標を保存
-                if (!d.show && wrapper) {
+                if (!d.show) {
                     basePos.copy(wrapper.position);
                     baseRot.copy(wrapper.rotation);
                     baseScale.copy(wrapper.scale);
+                    // 親に「最新の座標」を保存させるために送り返す
+                    window.parent.postMessage({
+                        type: 'save_data',
+                        pos: {x: basePos.x, y: basePos.y, z: basePos.z},
+                        rot: {x: baseRot.x, y: baseRot.y, z: baseRot.z},
+                        s: {x: baseScale.x, y: baseScale.y, z: baseScale.z}
+                    }, "*");
                 }
             }
 
-            if (d.type === 'play_animation' && inspectAction && !isInspecting) {
+            // ★保存されていたデータを適用する
+            if (d.type === 'apply_saved_data') {
+                basePos.set(d.pos.x, d.pos.y, d.pos.z);
+                baseRot.set(d.rot.x, d.rot.y, d.rot.z);
+                baseScale.set(d.s.x, d.s.y, d.s.z);
+                wrapper.position.copy(basePos);
+                wrapper.rotation.copy(baseRot);
+                wrapper.scale.copy(baseScale);
+            }
+
+            if (d.type === 'play_animation' && !isInspecting && !control.enabled) {
                 isInspecting = true;
                 idleAction.fadeOut(0.2);
                 inspectAction.reset().fadeIn(0.2).play();
-                setTimeout(() => {
-                    inspectAction.fadeOut(0.5);
-                    idleAction.reset().fadeIn(0.5).play();
-                    setTimeout(() => { isInspecting = false; }, 500);
-                }, inspectAction.getClip().duration * 1000);
             }
 
             if (d.type === 'mouse_move' && !control.enabled) {
-                offsetRotY -= d.mx * 0.0006; 
-                offsetRotX -= d.my * 0.0006;
-                offsetPosX -= d.mx * 0.0002;
-                offsetPosY += d.my * 0.0002;
+                offsetRot.y -= d.mx * 0.0004;
+                offsetRot.x -= d.my * 0.0004;
+                offsetPos.x -= d.mx * 0.00015;
+                offsetPos.y += d.my * 0.00015;
             }
         });
 
@@ -110,30 +124,18 @@
             requestAnimationFrame(animate);
             const delta = clock.getDelta();
             const time = performance.now() * 0.001;
-
             if (mixer) mixer.update(delta);
-
             if (wrapper && !control.enabled) {
-                offsetRotX *= 0.9;
-                offsetRotY *= 0.9;
-                offsetPosX *= 0.85;
-                offsetPosY *= 0.85;
-
+                offsetRot.x *= Math.pow(0.9, delta * 60);
+                offsetRot.y *= Math.pow(0.9, delta * 60);
+                offsetPos.x *= Math.pow(0.85, delta * 60);
+                offsetPos.y *= Math.pow(0.85, delta * 60);
                 const breatheY = Math.sin(time * 1.5) * 0.015;
-                const swayIntensity = isInspecting ? 0.2 : 1.0; 
-
-                // 「箱」を基準位置 + 揺れの場所に配置
-                wrapper.position.x = basePos.x + (offsetPosX * swayIntensity);
-                wrapper.position.y = basePos.y + (offsetPosY + breatheY) * swayIntensity;
-                wrapper.position.z = basePos.z;
-
-                wrapper.rotation.x = baseRot.x + (offsetRotX * swayIntensity);
-                wrapper.rotation.y = baseRot.y + (offsetRotY * swayIntensity);
-                wrapper.rotation.z = baseRot.z + (offsetRotY * 0.5 * swayIntensity);
-
+                const swayStr = isInspecting ? 0.15 : 1.0; 
+                wrapper.position.set(basePos.x + offsetPos.x * swayStr, basePos.y + (offsetPos.y + breatheY) * swayStr, basePos.z);
+                wrapper.rotation.set(baseRot.x + offsetRot.x * swayStr, baseRot.y + offsetRot.y * swayStr, baseRot.z + (offsetRot.y * 0.5 * swayStr));
                 wrapper.scale.copy(baseScale);
             }
-
             renderer.render(scene, camera);
         }
 
