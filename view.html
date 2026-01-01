@@ -29,7 +29,17 @@
     <script>
         const wrapper = document.getElementById('wrapper');
         const modelViewer = document.getElementById('knife');
-        let config = { posX: 0, posY: 0, orbitX: -30, orbitY: 80, distance: 70 };
+        
+        // 初期設定
+        let config = { 
+            posX: 0, 
+            posY: 0, 
+            orbitX: -30, 
+            orbitY: 80, 
+            distance: 70 
+        };
+        
+        let sway = { x: 0, y: 0, rotX: 0, rotY: 0 };
         let isEditMode = false;
         let lastX = 0, lastY = 0;
 
@@ -37,7 +47,6 @@
         let idleTimer;
         function resetIdleTimer() {
             clearTimeout(idleTimer);
-            // 5〜10秒のランダムな間隔でInspectを再生
             idleTimer = setTimeout(() => {
                 if (!isEditMode && !wrapper.classList.contains('hidden')) {
                     playAnim('Inspect');
@@ -51,15 +60,22 @@
             const target = anims.find(a => a.toLowerCase().includes(name.toLowerCase()));
             if (target) {
                 modelViewer.animationName = target;
-                modelViewer.play({ repetitions: 1 });
+                modelViewer.currentTime = 0;
+                modelViewer.play();
             }
         }
 
+        // --- メッセージ受信処理 ---
         window.addEventListener('message', (e) => {
-            const d = e.data;
-            if (d.type === 'set-mode') isEditMode = d.enabled;
-            if (d.type === 'set-visible') {
-                if (d.visible) {
+            const data = e.data;
+            
+            if (data.type === 'set-mode') {
+                isEditMode = data.enabled;
+                if (isEditMode) window.focus();
+            }
+            
+            if (data.type === 'set-visible') {
+                if (data.visible) {
                     wrapper.classList.remove('hidden');
                     resetIdleTimer();
                 } else {
@@ -67,12 +83,36 @@
                     clearTimeout(idleTimer);
                 }
             }
-            if (d.type === 'update-transform') {
-                wrapper.style.transform = `translate3d(${config.posX + d.x}px, ${config.posY + d.y}px, 0) rotateY(${d.rotateY}deg) rotateX(${d.rotateX}deg)`;
+
+            // ホイールによる大きさ調節の受信
+            if (data.type === 'force-zoom') {
+                // 感度の調節（0.05を大きくすると早く変化します）
+                config.distance += data.deltaY * 0.05;
+                config.distance = Math.max(10, Math.min(200, config.distance));
+                updateOrbit();
             }
-            if (d.type === 'play-animation') playAnim(d.name);
+
+            if (data.type === 'update-transform') {
+                sway.x = data.x; sway.y = data.y;
+                sway.rotX = data.rotateX; sway.rotY = data.rotateY;
+                updateTransform();
+            }
+
+            if (data.type === 'play-animation') playAnim(data.name);
         });
 
+        // カメラ角度・距離の更新
+        function updateOrbit() {
+            const orbit = `${config.orbitX}deg ${config.orbitY}deg ${config.distance}m`;
+            modelViewer.setAttribute('camera-orbit', orbit);
+        }
+
+        // 位置・揺れの更新
+        function updateTransform() {
+            wrapper.style.transform = `translate3d(${config.posX + sway.x}px, ${config.posY + sway.y}px, 0) rotateY(${sway.rotY}deg) rotateX(${sway.rotX}deg)`;
+        }
+
+        // --- 編集モード用のマウス操作 ---
         window.addEventListener('mousedown', (e) => {
             if (!isEditMode) return;
             lastX = e.clientX; lastY = e.clientY;
@@ -84,16 +124,22 @@
             const dy = e.clientY - lastY;
             lastX = e.clientX; lastY = e.clientY;
 
-            if (e.buttons === 1) { // 左ドラッグで移動
-                config.posX += dx; config.posY += dy;
-            } else if (e.buttons === 2) { // 右ドラッグで回転
-                config.orbitX -= dx * 0.5; config.orbitY -= dy * 0.5;
+            if (e.buttons === 1) { // 左クリックドラッグ：移動
+                config.posX += dx; 
+                config.posY += dy;
+            } else if (e.buttons === 2) { // 右クリックドラッグ：回転
+                config.orbitX -= dx * 0.5; 
+                config.orbitY -= dy * 0.5;
                 config.orbitY = Math.max(1, Math.min(179, config.orbitY));
-                modelViewer.setAttribute('camera-orbit', `${config.orbitX}deg ${config.orbitY}deg ${config.distance}m`);
+                updateOrbit();
             }
+            updateTransform();
         });
         
-        modelViewer.addEventListener('load', resetIdleTimer);
+        modelViewer.addEventListener('load', () => {
+            updateOrbit();
+            resetIdleTimer();
+        });
     </script>
 </body>
 </html>
