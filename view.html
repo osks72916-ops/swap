@@ -2,43 +2,62 @@
 <html>
 <head>
     <style>
-        body { margin: 0; padding: 0; overflow: hidden; background: transparent; width: 100vw; height: 100vh; }
-        /* モデルを表示する枠を右下に配置 */
-        .weapon-wrapper {
-            position: absolute;
-            bottom: 0;
-            right: 0;
-            width: 500px; /* 十分な広さを確保 */
-            height: 500px;
-            display: flex;
-            align-items: flex-end;
-            justify-content: flex-end;
-        }
+        body { margin: 0; padding: 0; overflow: hidden; background: transparent; width: 100vw; height: 100vh; user-select: none; }
         model-viewer {
-            width: 100%; height: 100%;
+            width: 400px; height: 400px; /* モデルが十分入るサイズ */
+            position: absolute;
+            cursor: move;
             background: transparent;
+            --poster-color: transparent;
         }
+        /* 編集モード中のみ枠線を表示 */
+        .editing model-viewer { border: 2px dashed rgba(255,255,255,0.5); }
     </style>
     <script type="module" src="https://ajax.googleapis.com/ajax/libs/model-viewer/3.4.0/model-viewer.min.js"></script>
 </head>
 <body>
-    <div class="weapon-wrapper" id="wrapper">
-        <model-viewer id="mv" src="melee_156.glb" autoplay interaction-prompt="none" camera-orbit="45deg 75deg 2m"></model-viewer>
-    </div>
+    <model-viewer id="mv" src="melee_156.glb" autoplay interaction-prompt="none" camera-orbit="45deg 75deg 2m"></model-viewer>
 
     <script>
-        const wrapper = document.getElementById('wrapper');
         const mv = document.getElementById('mv');
+        let isDragging = false;
+        let scale = 0.2;
+        let posX = window.innerWidth - 450;
+        let posY = window.innerHeight - 450;
 
+        // 初期配置
+        mv.style.left = posX + 'px';
+        mv.style.top = posY + 'px';
+        mv.setAttribute('scale', `${scale} ${scale} ${scale}`);
+
+        // マウスドラッグ移動
+        mv.addEventListener('mousedown', (e) => { isDragging = true; });
+        window.addEventListener('mousemove', (e) => {
+            if (!isDragging) return;
+            posX = e.clientX - 200; // 中心に合わせる
+            posY = e.clientY - 200;
+            mv.style.left = posX + 'px';
+            mv.style.top = posY + 'px';
+            sendUpdate();
+        });
+        window.addEventListener('mouseup', () => { isDragging = false; });
+
+        // ホイール拡大縮小
+        window.addEventListener('wheel', (e) => {
+            scale += e.deltaY * -0.0002;
+            scale = Math.min(Math.max(.05, scale), 2); // 最小・最大制限
+            mv.setAttribute('scale', `${scale} ${scale} ${scale}`);
+            sendUpdate();
+        });
+
+        function sendUpdate() {
+            window.parent.postMessage({ type: 'updateConfig', x: posX, y: posY, scale: scale }, '*');
+        }
+
+        // 編集モードの見た目切り替え
         window.addEventListener('message', (e) => {
-            if (e.data.type === 'adjust') {
-                // 位置の調整
-                wrapper.style.right = e.data.x + 'px';
-                wrapper.style.bottom = e.data.y + 'px';
-                // サイズの調整
-                const s = e.data.scale;
-                mv.setAttribute('scale', `${s} ${s} ${s}`);
-            }
+            if (e.data.isAdjusting) document.body.classList.add('editing');
+            else document.body.classList.remove('editing');
         });
     </script>
 </body>
