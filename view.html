@@ -41,5 +41,17 @@
             }
         });
     </script>
+    <script>
+    window.addEventListener('message', (e) => {
+        const mv = document.querySelector('model-viewer');
+        
+        if (e.data.type === 'adjust') {
+            // モデル自体の大きさを変更
+            mv.setAttribute('scale', `${e.data.scale} ${e.data.scale} ${e.data.scale}`);
+        }
+        
+        // 前回のマウス移動処理などはここに残しておく
+    });
+</script>
 </body>
 </html>
