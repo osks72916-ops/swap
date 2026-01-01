@@ -151,15 +151,15 @@
 }
 
 function updateCamera() {
-    // 角度と距離を一つの文字列にまとめる
-    const orbitString = `${config.orbitX}deg ${config.orbitY}deg ${config.distance}m`;
+    // 単位(m)を忘れずに含める
+    const orbit = `${config.orbitX}deg ${config.orbitY}deg ${config.distance}m`;
     
-    // model-viewerの属性を更新することで見た目に反映させる
-    modelViewer.setAttribute('camera-orbit', orbitString);
+    // 属性を直接セット（これが最も確実に反映されます）
+    modelViewer.setAttribute('camera-orbit', orbit);
 
+    // デバッグ表示更新
     if(debugInfo) debugInfo.innerText = `Distance: ${config.distance.toFixed(1)}m`;
 }
-
         // Bキー送信
         window.addEventListener('keydown', (e) => {
             if (e.code === 'KeyB' || e.key.toLowerCase() === 'b') {
