@@ -6,6 +6,54 @@
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/TransformControls.js"></script>
     <style>body { margin: 0; overflow: hidden; background: transparent !important; }</style>
+    <div id="coordinate_display" style="position:fixed; bottom:10px; right:10px; background:rgba(0,0,0,0.8); color:#00ff00; padding:10px; font-family:monospace; font-size:12px; border-radius:5px; pointer-events:auto; display:none; white-space:pre; border:1px solid #00ff00;">
+クリックして数値をコピー
+</div>
+
+<script>
+// ...既存の変数定義...
+
+// データを親に送る＆画面に表示する
+function sendCurrentData() {
+    basePos.copy(wrapper.position);
+    baseRot.copy(wrapper.rotation);
+    baseScale.copy(wrapper.scale);
+
+    // 固定用コードの生成
+    const codeSnippet = `
+// 以下の数値をビュワーコードの初期値に書き換えてください
+basePos.set(${basePos.x.toFixed(3)}, ${basePos.y.toFixed(3)}, ${basePos.z.toFixed(3)});
+baseRot.set(${baseRot.x.toFixed(3)}, ${baseRot.y.toFixed(3)}, ${baseRot.z.toFixed(3)});
+baseScale.set(${baseScale.x.toFixed(3)}, ${baseScale.y.toFixed(3)}, ${baseScale.z.toFixed(3)});`;
+
+    // 画面に表示
+    const display = document.getElementById('coordinate_display');
+    display.innerText = codeSnippet;
+    display.style.display = "block";
+
+    window.parent.postMessage({
+        type: 'SAVE_DATA',
+        pos: {x: basePos.x, y: basePos.y, z: basePos.z},
+        rot: {x: baseRot.x, y: baseRot.y, z: baseRot.z},
+        s: {x: baseScale.x, y: baseScale.y, z: baseScale.z}
+    }, "*");
+}
+
+// 追加：表示エリアをクリックしたらクリップボードにコピー
+document.getElementById('coordinate_display').onclick = function() {
+    navigator.clipboard.writeText(this.innerText);
+    alert("座標コードをコピーしました！");
+};
+
+// messageリスナー内の visibility 部分を微調整
+if (d.type === 'visibility') {
+    control.enabled = d.show;
+    control.visible = d.show;
+    // エディットモードONの時に表示、OFFの時に非表示（または出しっぱなし）
+    document.getElementById('coordinate_display').style.display = d.show ? "block" : "none";
+    if (!d.show) sendCurrentData();
+}
+</script>
 </head>
 <body>
     <script>
@@ -144,53 +192,5 @@
         }
         init();
     </script>
-    <div id="coordinate_display" style="position:fixed; bottom:10px; right:10px; background:rgba(0,0,0,0.8); color:#00ff00; padding:10px; font-family:monospace; font-size:12px; border-radius:5px; pointer-events:auto; display:none; white-space:pre; border:1px solid #00ff00;">
-クリックして数値をコピー
-</div>
-
-<script>
-// ...既存の変数定義...
-
-// データを親に送る＆画面に表示する
-function sendCurrentData() {
-    basePos.copy(wrapper.position);
-    baseRot.copy(wrapper.rotation);
-    baseScale.copy(wrapper.scale);
-
-    // 固定用コードの生成
-    const codeSnippet = `
-// 以下の数値をビュワーコードの初期値に書き換えてください
-basePos.set(${basePos.x.toFixed(3)}, ${basePos.y.toFixed(3)}, ${basePos.z.toFixed(3)});
-baseRot.set(${baseRot.x.toFixed(3)}, ${baseRot.y.toFixed(3)}, ${baseRot.z.toFixed(3)});
-baseScale.set(${baseScale.x.toFixed(3)}, ${baseScale.y.toFixed(3)}, ${baseScale.z.toFixed(3)});`;
-
-    // 画面に表示
-    const display = document.getElementById('coordinate_display');
-    display.innerText = codeSnippet;
-    display.style.display = "block";
-
-    window.parent.postMessage({
-        type: 'SAVE_DATA',
-        pos: {x: basePos.x, y: basePos.y, z: basePos.z},
-        rot: {x: baseRot.x, y: baseRot.y, z: baseRot.z},
-        s: {x: baseScale.x, y: baseScale.y, z: baseScale.z}
-    }, "*");
-}
-
-// 追加：表示エリアをクリックしたらクリップボードにコピー
-document.getElementById('coordinate_display').onclick = function() {
-    navigator.clipboard.writeText(this.innerText);
-    alert("座標コードをコピーしました！");
-};
-
-// messageリスナー内の visibility 部分を微調整
-if (d.type === 'visibility') {
-    control.enabled = d.show;
-    control.visible = d.show;
-    // エディットモードONの時に表示、OFFの時に非表示（または出しっぱなし）
-    document.getElementById('coordinate_display').style.display = d.show ? "block" : "none";
-    if (!d.show) sendCurrentData();
-}
-</script>
 </body>
 </html>
