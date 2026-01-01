@@ -15,6 +15,12 @@
         let idleAction, inspectAction;
         const clock = new THREE.Clock();
 
+        // マウス追従用の変数
+        let targetRotationX = 0;
+        let targetRotationY = 0;
+        let targetPosX = 0;
+        let targetPosY = 0;
+
         function init() {
             scene = new THREE.Scene();
             camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
@@ -26,7 +32,7 @@
             document.body.appendChild(renderer.domElement);
 
             scene.add(new THREE.AmbientLight(0xffffff, 1.2));
-            const sun = new THREE.DirectionalLight(0xffffff, 1);
+            const sun = new THREE.DirectionalLight(0xffffff, 1.5);
             sun.position.set(5, 5, 5);
             scene.add(sun);
 
@@ -47,13 +53,10 @@
 
                 if (gltf.animations.length > 0) {
                     mixer = new THREE.AnimationMixer(model);
-                    
-                    // 1つ目のアニメーションを待機(Idle)とする
                     idleAction = mixer.clipAction(gltf.animations[0]);
-                    idleAction.setEffectiveTimeScale(0.3); // ★通常の30%の速度でゆっくり動かす
+                    idleAction.setEffectiveTimeScale(0.4);
                     idleAction.play();
 
-                    // 2つ目があればそれをインスペクトに、なければ1つ目を使い回す
                     const inspectClip = gltf.animations[1] || gltf.animations[0];
                     inspectAction = mixer.clipAction(inspectClip);
                     inspectAction.setLoop(THREE.LoopOnce);
@@ -72,33 +75,47 @@
             if (d.type === 'play_animation') {
                 if (inspectAction) {
                     inspectAction.reset();
-                    inspectAction.setEffectiveTimeScale(1.0); // インスペクトは等速
-                    // 0.2秒かけてインスペクト動作へ切り替え
                     inspectAction.crossFadeFrom(idleAction, 0.2, true).play();
-                    
-                    // アニメーションが終わったら待機に戻す
-                    setTimeout(() => {
-                        idleAction.reset().fadeIn(0.5).play();
-                    }, (inspectAction.getClip().duration * 1000));
+                    setTimeout(() => { idleAction.reset().fadeIn(0.5).play(); }, (inspectAction.getClip().duration * 1000));
                 }
+            }
+            // ★マウス移動量を受け取る
+            if (d.type === 'mouse_move' && !control.enabled) {
+                // 移動量に応じて目標の回転と位置を計算 (数値を変えると揺れ具合が変わります)
+                targetRotationY -= d.mx * 0.0005; 
+                targetRotationX -= d.my * 0.0005;
+                targetPosX -= d.mx * 0.0002;
+                targetPosY += d.my * 0.0002;
             }
         });
 
         function animate() {
             requestAnimationFrame(animate);
             const delta = clock.getDelta();
-            const time = performance.now() * 0.001; // 秒単位の時間
+            const time = performance.now() * 0.001;
 
             if (mixer) mixer.update(delta);
 
-            // ★プログラムによる「かっこいい揺らぎ」の追加
-            // 編集モード中でない時だけ適用
-            if (model && !control.dragging) {
-                // ゆっくりした上下の浮遊 (サイン波)
-                model.position.y += Math.sin(time * 1.5) * 0.0005;
-                // わずかな左右の傾き (呼吸感)
-                model.rotation.z = Math.sin(time * 1.2) * 0.01;
-                model.rotation.x += Math.sin(time * 1.0) * 0.0002;
+            if (model && !control.enabled) {
+                // 1. 基本の「ゆっくりした揺れ（呼吸）」
+                const breatheY = Math.sin(time * 1.5) * 0.02;
+                const breatheX = Math.cos(time * 1.2) * 0.01;
+
+                // 2. マウス追従（滑らかに目標値へ近づける Lerp）
+                // 回転をゆっくり0に戻そうとする力
+                targetRotationX *= 0.92;
+                targetRotationY *= 0.92;
+                targetPosX *= 0.9;
+                targetPosY *= 0.9;
+
+                // モデルの座標と回転に適用
+                model.rotation.x += (targetRotationX - model.rotation.x) * 0.1;
+                model.rotation.y += (targetRotationY - model.rotation.y) * 0.1;
+                model.rotation.z = Math.sin(time * 1.2) * 0.01 + (targetRotationY * 0.5); // 左右移動で少し傾く
+
+                // 位置の微調整（マウス移動方向に少しズレる）
+                model.position.x += (targetPosX - model.position.x) * 0.1;
+                model.position.y += (targetPosY + breatheY - model.position.y) * 0.1;
             }
 
             renderer.render(scene, camera);
