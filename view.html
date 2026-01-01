@@ -5,33 +5,34 @@
     <title>Weapon Viewer</title>
     <script type="module" src="https://ajax.googleapis.com/ajax/libs/model-viewer/3.3.0/model-viewer.min.js"></script>
     <style>
-        /* 背景透過 & 全画面設定 */
+        /* 全画面・背景透過・フォーカス枠消し */
         html, body {
             margin: 0; padding: 0;
-            width: 100vw; height: 100vh; /* 確実に画面いっぱいにする */
+            width: 100vw; height: 100vh;
             background-color: transparent !important;
-            overflow: hidden; /* スクロールバーを出さない */
+            overflow: hidden;
             user-select: none;
+            outline: none; /* フォーカス時の枠線を消す */
         }
 
-        /* 武器コンテナ */
         #wrapper {
             position: absolute;
             top: 0; left: 0;
             width: 100%; height: 100%;
-            pointer-events: none; /* モデル自体はクリック透過（model-viewerが拾う） */
-            transform-origin: center center; /* 画面中央基準で揺らす */
+            pointer-events: none;
+            transform-origin: center center;
         }
 
         model-viewer {
             width: 100%; height: 100%;
             background-color: transparent;
             --poster-color: transparent;
-            pointer-events: auto; /* マウス操作用 */
+            pointer-events: auto; /* ここでマウス操作を受け取る */
         }
     </style>
 </head>
-<body oncontextmenu="return false;">
+<!-- ページ読み込み時やクリック時にフォーカスを維持する -->
+<body oncontextmenu="return false;" tabindex="0">
 
     <div id="wrapper">
         <model-viewer
@@ -41,7 +42,7 @@
             disable-tap
             interaction-prompt="none"
             autoplay
-            field-of-view="15deg" 
+            field-of-view="45deg" 
         ></model-viewer>
     </div>
 
@@ -49,35 +50,32 @@
         const wrapper = document.getElementById('wrapper');
         const modelViewer = document.getElementById('knife');
 
-        // === 設定 (初期値) ===
-        let config = { 
-            posX: 0, 
-            posY: 0, 
-            orbitX: -30, 
-            orbitY: 80, 
-            distance: 3 // 初期距離
-        };
+        let config = { posX: 0, posY: 0, orbitX: -30, orbitY: 80, distance: 3 };
         let sway = { x: 0, y: 0, rotX: 0, rotY: 0 };
         let isEditMode = false;
         
-        // ドラッグ用変数
         let lastMouseX = 0, lastMouseY = 0;
         let isDraggingLeft = false, isDraggingRight = false;
 
         updateCamera();
         updateTransform();
 
-        // === 親(Voxiom)からのメッセージ受信 ===
+        // === 親(Voxiom)からのメッセージ ===
         window.addEventListener('message', (event) => {
             const data = event.data;
 
-            // モード設定
             if (data.type === 'set-mode') {
                 isEditMode = data.enabled;
                 document.body.style.cursor = isEditMode ? 'move' : 'default';
+                
+                // 【重要】編集モードに入ったら、このiframe自身にフォーカスを当てる
+                // これにより、キーボード入力（Bキー）がここで検知できるようになる
+                if (isEditMode) {
+                    window.focus();
+                    document.body.focus();
+                }
             }
 
-            // 揺れ更新
             if (data.type === 'update-transform') {
                 if (!isEditMode) {
                     sway.x = data.x; sway.y = data.y;
@@ -88,7 +86,6 @@
                 updateTransform();
             }
 
-            // アニメーション
             if (data.type === 'play-animation') {
                 const animName = data.name;
                 if(modelViewer.availableAnimations){
@@ -102,18 +99,21 @@
             }
         });
 
-        // === 【重要】Bキー検知 (ここを追加) ===
-        // iframeにフォーカスがあっても親に「B押されたよ」と伝える
+        // === 【最重要】ここでBキーを検知して親に送る ===
         window.addEventListener('keydown', (e) => {
-            if (e.code === 'KeyB') {
-                // 親ウィンドウへ送信
+            // iframe内でBが押されたら
+            if (e.code === 'KeyB' || e.key.toLowerCase() === 'b') {
+                // 親ウィンドウ(Tampermonkey)へ「B押されたよ」とメッセージ送信
                 window.parent.postMessage({ type: 'toggle-mode-request' }, '*');
             }
         });
 
-        // === マウス操作 (編集モード) ===
+        // === マウス操作 ===
         window.addEventListener('mousedown', (e) => {
             if (!isEditMode) return;
+            // クリックされたらフォーカスを再取得（念のため）
+            window.focus();
+            
             lastMouseX = e.clientX;
             lastMouseY = e.clientY;
             if (e.button === 0) isDraggingLeft = true;
@@ -145,16 +145,10 @@
             }
         });
 
-        // === 【修正】ホイール縮小の限界突破 ===
         window.addEventListener('wheel', (e) => {
             if (!isEditMode) return;
-            // 感度
-            const sensitivity = 0.01; 
-            config.distance += e.deltaY * sensitivity;
-            
-            // 最小0.1m ～ 最大100m まで許可 (これでかなり小さくできます)
+            config.distance += e.deltaY * 0.01;
             config.distance = Math.max(0.1, Math.min(100, config.distance));
-            
             updateCamera();
         }, { passive: false });
 
