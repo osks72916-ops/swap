@@ -11,17 +11,16 @@
     <script>
         const MODEL_URL = "melee_156.glb"; 
 
-        let scene, camera, renderer, model, mixer, control;
+        let scene, camera, renderer, model, mixer, control, wrapper;
         let idleAction, inspectAction;
-        let isInspecting = false; // 連打防止フラグ
+        let isInspecting = false;
         const clock = new THREE.Clock();
 
         // 座標管理
         let basePos = new THREE.Vector3(0, 0, 0);
         let baseRot = new THREE.Euler(0, 0, 0);
         let baseScale = new THREE.Vector3(1, 1, 1);
-        let offsetPosX = 0, offsetPosY = 0;
-        let offsetRotX = 0, offsetRotY = 0;
+        let offsetPosX = 0, offsetPosY = 0, offsetRotX = 0, offsetRotY = 0;
 
         function init() {
             scene = new THREE.Scene();
@@ -38,9 +37,16 @@
             sun.position.set(5, 5, 5);
             scene.add(sun);
 
+            // ★重要：モデルを入れるための「透明な箱（グループ）」を作成
+            wrapper = new THREE.Group();
+            scene.add(wrapper);
+
             control = new THREE.TransformControls(camera, renderer.domElement);
             control.visible = false;
             scene.add(control);
+
+            // ★あなたはモデルではなく「箱」を操作する
+            control.attach(wrapper);
 
             loadModel(MODEL_URL);
             animate();
@@ -50,21 +56,18 @@
             const loader = new THREE.GLTFLoader();
             loader.load(url, (gltf) => {
                 model = gltf.scene;
-                scene.add(model);
-                control.attach(model);
+                wrapper.add(model); // 箱の中にモデルを入れる
 
                 if (gltf.animations.length > 0) {
                     mixer = new THREE.AnimationMixer(model);
-                    
-                    // アニメーションの設定
                     idleAction = mixer.clipAction(gltf.animations[0]);
-                    idleAction.setEffectiveTimeScale(0.4); // 待機はゆっくり
+                    idleAction.setEffectiveTimeScale(0.4);
                     idleAction.play();
 
                     const inspectClip = gltf.animations[1] || gltf.animations[0];
                     inspectAction = mixer.clipAction(inspectClip);
                     inspectAction.setLoop(THREE.LoopOnce);
-                    inspectAction.clampWhenFinished = true; // 最後で止める
+                    inspectAction.clampWhenFinished = true;
                 }
             });
         }
@@ -76,31 +79,23 @@
             if (d.type === 'visibility') {
                 control.enabled = d.show;
                 control.visible = d.show;
-                if (!d.show && model) {
-                    basePos.copy(model.position);
-                    baseRot.copy(model.rotation);
-                    baseScale.copy(model.scale);
+                // 編集モード終了時に、その時の「箱」の座標を保存
+                if (!d.show && wrapper) {
+                    basePos.copy(wrapper.position);
+                    baseRot.copy(wrapper.rotation);
+                    baseScale.copy(wrapper.scale);
                 }
             }
 
-            // インスペクト再生
-            if (d.type === 'play_animation') {
-                if (inspectAction && !isInspecting) {
-                    isInspecting = true;
-                    
-                    // 待機をフェードアウトしてインスペクトをフェードイン
-                    idleAction.fadeOut(0.2);
-                    inspectAction.reset().fadeIn(0.2).play();
-
-                    // アニメーションの長さ分待ってから待機に戻す
-                    const duration = inspectAction.getClip().duration;
-                    setTimeout(() => {
-                        inspectAction.fadeOut(0.5);
-                        idleAction.reset().fadeIn(0.5).play();
-                        // 完全にフェードが終わる頃にフラグを解除
-                        setTimeout(() => { isInspecting = false; }, 500);
-                    }, duration * 1000);
-                }
+            if (d.type === 'play_animation' && inspectAction && !isInspecting) {
+                isInspecting = true;
+                idleAction.fadeOut(0.2);
+                inspectAction.reset().fadeIn(0.2).play();
+                setTimeout(() => {
+                    inspectAction.fadeOut(0.5);
+                    idleAction.reset().fadeIn(0.5).play();
+                    setTimeout(() => { isInspecting = false; }, 500);
+                }, inspectAction.getClip().duration * 1000);
             }
 
             if (d.type === 'mouse_move' && !control.enabled) {
@@ -118,26 +113,25 @@
 
             if (mixer) mixer.update(delta);
 
-            if (model && !control.enabled) {
-                // 戻る力（慣性）
+            if (wrapper && !control.enabled) {
                 offsetRotX *= 0.9;
                 offsetRotY *= 0.9;
                 offsetPosX *= 0.85;
                 offsetPosY *= 0.85;
 
                 const breatheY = Math.sin(time * 1.5) * 0.015;
-
-                // 編集した座標(base) + マウスの揺れ(offset) を適用
-                // ただしインスペクト中はモデル本来のアニメを優先するため、揺れを抑える
                 const swayIntensity = isInspecting ? 0.2 : 1.0; 
 
-                model.position.x = basePos.x + (offsetPosX * swayIntensity);
-                model.position.y = basePos.y + (offsetPosY + breatheY) * swayIntensity;
-                model.position.z = basePos.z;
+                // 「箱」を基準位置 + 揺れの場所に配置
+                wrapper.position.x = basePos.x + (offsetPosX * swayIntensity);
+                wrapper.position.y = basePos.y + (offsetPosY + breatheY) * swayIntensity;
+                wrapper.position.z = basePos.z;
 
-                model.rotation.x = baseRot.x + (offsetRotX * swayIntensity);
-                model.rotation.y = baseRot.y + (offsetRotY * swayIntensity);
-                model.rotation.z = baseRot.z + (offsetRotY * 0.5 * swayIntensity);
+                wrapper.rotation.x = baseRot.x + (offsetRotX * swayIntensity);
+                wrapper.rotation.y = baseRot.y + (offsetRotY * swayIntensity);
+                wrapper.rotation.z = baseRot.z + (offsetRotY * 0.5 * swayIntensity);
+
+                wrapper.scale.copy(baseScale);
             }
 
             renderer.render(scene, camera);
