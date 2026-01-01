@@ -3,64 +3,45 @@
 <head>
     <meta charset="UTF-8">
     <title>Weapon Viewer</title>
-    <!-- Model Viewer -->
     <script type="module" src="https://ajax.googleapis.com/ajax/libs/model-viewer/3.3.0/model-viewer.min.js"></script>
     <style>
-        /* 背景透過と基本設定 */
         html, body {
-            margin: 0;
-            padding: 0;
-            width: 100%;
-            height: 100%;
+            margin: 0; padding: 0;
+            width: 100%; height: 100%;
             background-color: transparent !important;
             overflow: hidden;
+            /* 編集モード時の右クリックメニュー禁止 */
+            user-select: none;
         }
 
-        /* 武器を包むコンテナ（画面全体を使うが、配置は右下にする） */
         #wrapper {
             position: absolute;
-            bottom: 0;
-            right: 0;
-            /* ここで武器の表示領域の大きさを決めます */
-            /* 画面全体に広げることで描画切れを防ぎます */
-            width: 100%; 
-            height: 100%; 
-            pointer-events: none; /* 入力を無視 */
-            
-            /* 揺れのアニメーション用 */
-            transform-origin: bottom right;
-            transition: transform 0.05s linear; 
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            /* 初期位置を真ん中ではなく、扱いやすい位置に */
+            transform-origin: center center;
+            /* 編集時は即時反映させたいのでtransitionはJS側で制御 */
         }
 
-        /* モデルビュワー本体 */
         model-viewer {
-            width: 100%;
-            height: 100%;
+            width: 100%; height: 100%;
             background-color: transparent;
             --poster-color: transparent;
-            
-            /* 武器の位置調整はここで margin や padding を使うのではなく
-               camera-orbit や camera-target で調整するのがベストです */
         }
     </style>
 </head>
-<body>
+<!-- 右クリックメニューを出さないようにする -->
+<body oncontextmenu="return false;">
 
     <div id="wrapper">
-        <!-- 
-            animation-name: 初期再生するアニメーション名（Idleなど）
-            autoplay: 自動再生
-        -->
         <model-viewer
             id="knife"
-            src="melee_156.glb" 
-            camera-controls
+            src="./knife.glb" 
             disable-zoom
             disable-tap
             interaction-prompt="none"
-            camera-orbit="-30deg 80deg 2.5m" 
-            field-of-view="30deg"
-            shadow-intensity="1"
+            /* 影を消す設定 */
+            shadow-intensity="0"
             autoplay
         ></model-viewer>
     </div>
@@ -68,56 +49,134 @@
     <script>
         const wrapper = document.getElementById('wrapper');
         const modelViewer = document.getElementById('knife');
-        let availableAnimations = [];
 
-        // モデルがロードされたらアニメーションリストを取得
-        modelViewer.addEventListener('load', () => {
-            availableAnimations = modelViewer.availableAnimations;
-            console.log("利用可能なアニメーション一覧:", availableAnimations);
-            
-            // 例: もし 'Idle' という名前のアニメーションがあれば初期設定にする
-            if (availableAnimations.includes('Idle')) {
-                modelViewer.animationName = 'Idle';
-            }
-        });
+        // === 状態管理変数 ===
+        // ユーザーが決めた固定位置・角度・ズーム
+        let config = {
+            posX: 0,      // 画面上のX位置
+            posY: 0,      // 画面上のY位置
+            orbitX: -30,  // カメラの水平角度 (deg)
+            orbitY: 80,   // カメラの垂直角度 (deg)
+            distance: 2.5 // カメラの距離 (m)
+        };
 
-        // アニメーションが一周終わったら Idle に戻す処理 (攻撃モーション等の後)
-        modelViewer.addEventListener('finished', () => {
-            // 'Idle' がある場合のみ戻す（なければ止まるかループ設定による）
-            if (availableAnimations.includes('Idle')) {
-                modelViewer.animationName = 'Idle';
-            }
-        });
+        // ゲーム側から送られてくる揺れデータ
+        let sway = { x: 0, y: 0, rotX: 0, rotY: 0 };
 
-        // Voxiom側からのメッセージ受信
+        // 編集モードかどうか
+        let isEditMode = false;
+        
+        // マウス操作用の一時変数
+        let isDraggingLeft = false;
+        let isDraggingRight = false;
+        let lastMouseX = 0;
+        let lastMouseY = 0;
+
+        // 初期設定の適用
+        updateCamera();
+        updateTransform();
+
+        // === Voxiomからのメッセージ受信 ===
         window.addEventListener('message', (event) => {
             const data = event.data;
 
-            // 1. 位置の更新 (Sway & Bobbing)
-            if (data.type === 'update-transform') {
-                wrapper.style.transform = `
-                    translate3d(${data.x}px, ${data.y}px, 0)
-                    rotateY(${data.rotateY}deg)
-                    rotateX(${data.rotateX}deg)
-                `;
+            // モード切替
+            if (data.type === 'set-mode') {
+                isEditMode = data.enabled;
+                document.body.style.cursor = isEditMode ? 'move' : 'default';
             }
 
-            // 2. アニメーション再生指令
-            if (data.type === 'play-animation') {
-                // 指令されたアニメーション名（'Attack'など）がGLBに含まれているか確認
-                // 大文字小文字を区別せず検索する便利機能を追加
-                const animName = data.name;
-                const foundAnim = availableAnimations.find(a => a.toLowerCase().includes(animName.toLowerCase()));
+            // 揺れデータの更新 (編集モード中は揺れを止めて調整しやすくする)
+            if (data.type === 'update-transform') {
+                if (!isEditMode) {
+                    sway.x = data.x;
+                    sway.y = data.y;
+                    sway.rotX = data.rotateX;
+                    sway.rotY = data.rotateY;
+                } else {
+                    // 編集モード中は揺れをリセット
+                    sway = { x: 0, y: 0, rotX: 0, rotY: 0 };
+                }
+                updateTransform();
+            }
 
+            // アニメーション再生
+            if (data.type === 'play-animation') {
+                const animName = data.name;
+                const foundAnim = modelViewer.availableAnimations.find(a => a.toLowerCase().includes(animName.toLowerCase()));
                 if (foundAnim) {
                     modelViewer.animationName = foundAnim;
-                    modelViewer.currentTime = 0; // 最初から再生
+                    modelViewer.currentTime = 0;
                     modelViewer.play();
-                } else {
-                    console.log(`アニメーション "${animName}" はモデルに含まれていません。`);
                 }
             }
         });
+
+        // === 編集操作 (マウスイベント) ===
+        window.addEventListener('mousedown', (e) => {
+            if (!isEditMode) return;
+            lastMouseX = e.clientX;
+            lastMouseY = e.clientY;
+            
+            if (e.button === 0) isDraggingLeft = true;  // 左クリック
+            if (e.button === 2) isDraggingRight = true; // 右クリック
+        });
+
+        window.addEventListener('mouseup', () => {
+            isDraggingLeft = false;
+            isDraggingRight = false;
+        });
+
+        window.addEventListener('mousemove', (e) => {
+            if (!isEditMode) return;
+            
+            const deltaX = e.clientX - lastMouseX;
+            const deltaY = e.clientY - lastMouseY;
+            lastMouseX = e.clientX;
+            lastMouseY = e.clientY;
+
+            // 左ドラッグ：位置調整 (Position)
+            if (isDraggingLeft) {
+                config.posX += deltaX;
+                config.posY += deltaY;
+                updateTransform();
+            }
+
+            // 右ドラッグ：向き調整 (Rotation / Camera Orbit)
+            if (isDraggingRight) {
+                config.orbitX -= deltaX * 0.5; // 感度調整
+                config.orbitY -= deltaY * 0.5;
+                // 角度制限 (上下の反転防止など)
+                config.orbitY = Math.max(10, Math.min(170, config.orbitY)); 
+                updateCamera();
+            }
+        });
+
+        // ホイール：拡大縮小 (Zoom)
+        window.addEventListener('wheel', (e) => {
+            if (!isEditMode) return;
+            // スクロール量に応じて距離を変更
+            config.distance += e.deltaY * 0.005;
+            config.distance = Math.max(0.5, Math.min(10, config.distance)); // 制限
+            updateCamera();
+        });
+
+        // === 描画更新関数 ===
+
+        function updateCamera() {
+            // model-viewerのカメラ位置を更新
+            modelViewer.cameraOrbit = `${config.orbitX}deg ${config.orbitY}deg ${config.distance}m`;
+        }
+
+        function updateTransform() {
+            // CSS Transformで位置と揺れを適用
+            // 「設定した固定位置(config)」に「ゲームの揺れ(sway)」を足す
+            wrapper.style.transform = `
+                translate3d(${config.posX + sway.x}px, ${config.posY + sway.y}px, 0)
+                rotateY(${sway.rotY}deg)
+                rotateX(${sway.rotX}deg)
+            `;
+        }
     </script>
 </body>
 </html>
