@@ -54,7 +54,7 @@
         if (gltf.animations.length > 0) {
           mixer = new THREE.AnimationMixer(model);
           idleAction = mixer.clipAction(gltf.animations[0]);
-          idleAction.setEffectiveTimeScale(0.4);
+          idleAction.setEffectiveTimeScale(1);
           idleAction.play();
           
           const inspectClip = gltf.animations[1] || gltf.animations[0];
